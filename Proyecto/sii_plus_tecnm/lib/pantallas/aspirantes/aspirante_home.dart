@@ -17,12 +17,25 @@ class _AspiranteHomeState extends State<AspiranteHome> {
   final _passCtrl = TextEditingController();
   final _nombreCtrl = TextEditingController(); 
 
-  // Autenticación con Supabase
+  @override
+  void initState() {
+    super.initState();
+    // Verificamos si ya hay una sesión activa guardada en el navegador
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final session = Supabase.instance.client.auth.currentSession;
+      if (session != null) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const AspiranteFormulario()),
+        );
+      }
+    });
+  }
+
   Future<void> _autenticar() async {
     setState(() => _cargando = true);
     try {
       if (_esRegistro) {
-        // Crear cuenta en Supabase Auth
         await Supabase.instance.client.auth.signUp(
           email: _emailCtrl.text.trim(),
           password: _passCtrl.text.trim(),
@@ -30,14 +43,12 @@ class _AspiranteHomeState extends State<AspiranteHome> {
         );
         _mostrarMensaje('Cuenta creada exitosamente.');
       } else {
-        // Iniciar sesión
         await Supabase.instance.client.auth.signInWithPassword(
           email: _emailCtrl.text.trim(),
           password: _passCtrl.text.trim(),
         );
       }
 
-      // Si tiene éxito, pasamos al formulario
       if (mounted) {
         Navigator.pushReplacement(
           context,

@@ -9,11 +9,11 @@ class AspiranteFormulario extends StatefulWidget {
 }
 
 class _AspiranteFormularioState extends State<AspiranteFormulario> {
+  bool _cargandoInicial = true;
   bool _solicitudEnviada = false;
   bool _enviando = false;
   String _folioAsignado = '';
 
-  // Controladores con datos de prueba
   final _nombresCtrl = TextEditingController(text: 'Jorge Emilio');
   final _paternoCtrl = TextEditingController(text: 'Chávez');
   final _maternoCtrl = TextEditingController(text: 'Lizárraga');
@@ -31,7 +31,39 @@ class _AspiranteFormularioState extends State<AspiranteFormulario> {
   ];
   String? _carreraSeleccionada = 'Ingeniería Informática';
 
-  // Función para guardar datos en la tabla pública.aspirantes
+  @override
+  void initState() {
+    super.initState();
+    _verificarSiYaTieneRegistro();
+  }
+
+  // Busca en la BD si este usuario ya mandó sus datos
+  Future<void> _verificarSiYaTieneRegistro() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final data = await Supabase.instance.client
+          .from('aspirantes')
+          .select()
+          .eq('id_auth', user.id)
+          .maybeSingle();
+
+      if (data != null) {
+        // Ya tiene registro, recuperamos el folio y la carrera
+        setState(() {
+          _folioAsignado = data['folio_aspirante'];
+          _carreraSeleccionada = data['carrera_solicitada'];
+          _solicitudEnviada = true;
+        });
+      }
+    } catch (e) {
+      debugPrint('No se encontraron registros previos o hubo error: $e');
+    } finally {
+      setState(() => _cargandoInicial = false);
+    }
+  }
+
   Future<void> _enviarSolicitud() async {
     setState(() => _enviando = true);
     try {
@@ -49,7 +81,7 @@ class _AspiranteFormularioState extends State<AspiranteFormulario> {
         'telefono': _telefonoCtrl.text,
         'carrera_solicitada': _carreraSeleccionada,
         'promedio_preparatoria': double.tryParse(_promedioCtrl.text),
-        'id_auth': user?.id, // Vincula con la cuenta de Supabase Auth
+        'id_auth': user?.id,
       });
 
       setState(() {
@@ -63,30 +95,48 @@ class _AspiranteFormularioState extends State<AspiranteFormulario> {
     }
   }
 
+  // Función para cerrar sesión y borrar caché
+  Future<void> _cerrarSesion() async {
+    await Supabase.instance.client.auth.signOut();
+    if (mounted) {
+      // Regresa al menú principal (RoleSelectionScreen)
+      Navigator.pop(context); 
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Registro de Aspirante'),
-        actions: [IconButton(icon: const Icon(Icons.logout), onPressed: () => Navigator.pop(context))],
+        title: const Text('Portal de Aspirante'),
+        automaticallyImplyLeading: false, // Quita la flecha de regreso
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: _cerrarSesion,
+            tooltip: 'Cerrar Sesión',
+          )
+        ],
       ),
       body: Center(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 800),
-              child: Card(
-                elevation: 4,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                child: Padding(
-                  padding: const EdgeInsets.all(40.0),
-                  child: _solicitudEnviada ? _vistaEstatus() : _vistaFormulario(),
+        child: _cargandoInicial 
+          ? const CircularProgressIndicator() // Si está revisando la BD, muestra rueda
+          : SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 800),
+                  child: Card(
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(40.0),
+                      child: _solicitudEnviada ? _vistaEstatus() : _vistaFormulario(),
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
-        ),
       ),
     );
   }
@@ -138,18 +188,53 @@ class _AspiranteFormularioState extends State<AspiranteFormulario> {
     );
   }
 
+  // Vista actualizada con confirmación de guardado y botón grande de cerrar sesión
   Widget _vistaEstatus() {
     return Column(
       children: [
-        const Icon(Icons.check_circle, size: 80, color: Colors.green),
+        const Icon(Icons.verified_user, size: 80, color: Colors.green),
         const SizedBox(height: 20),
-        const Text('Solicitud Enviada', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+        const Text('¡Datos Guardados Exitosamente!', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.green)),
         const SizedBox(height: 10),
-        Text('Folio: $_folioAsignado', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-        const SizedBox(height: 10),
-        const Chip(label: Text('EN PROCESO'), backgroundColor: Colors.orange, labelStyle: TextStyle(color: Colors.white)),
+        const Text(
+          'Tu solicitud fue enviada y vinculada a tu cuenta de manera correcta. Puedes iniciar sesión en cualquier momento para revisar tu estatus.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 16, color: Colors.grey),
+        ),
         const SizedBox(height: 30),
-        ElevatedButton(onPressed: () => Navigator.pop(context), child: const Text('Salir'))
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.blue.shade200),
+          ),
+          child: Column(
+            children: [
+              Text('Folio asignado: $_folioAsignado', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
+              const SizedBox(height: 10),
+              Text('Carrera solicitada: $_carreraSeleccionada', style: const TextStyle(fontSize: 16)),
+              const SizedBox(height: 20),
+              const Chip(label: Text('ESTATUS: EN PROCESO'), backgroundColor: Colors.orange, labelStyle: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 40),
+        
+        // Botón grande y claro para Cerrar Sesión
+        SizedBox(
+          width: 250,
+          height: 45,
+          child: OutlinedButton.icon(
+            icon: const Icon(Icons.exit_to_app),
+            label: const Text('Cerrar Sesión Segura'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.red.shade700,
+              side: BorderSide(color: Colors.red.shade700),
+            ),
+            onPressed: _cerrarSesion,
+          ),
+        )
       ],
     );
   }
