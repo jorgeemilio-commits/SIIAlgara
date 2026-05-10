@@ -9,7 +9,7 @@ void main() async {
 
   // Inicialización con tus credenciales de Supabase
   await Supabase.initialize(
-    url: 'https://slrcguaqmlftohfmzzkt.supabase.co/rest/v1/', 
+    url: 'https://slrcguaqmlftohfmzzkt.supabase.co', 
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNscmNndWFxbWxmdG9oZm16emt0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0ODM5NjEsImV4cCI6MjA5MzA1OTk2MX0.IYAxKVIyVGvXI1E60mBz8RY1bRrlGMkwHrU9_z32KTg',                     
   );
 
