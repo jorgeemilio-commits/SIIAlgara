@@ -28,7 +28,7 @@ class _AspiranteHomeState extends State<AspiranteHome> {
           password: _passCtrl.text.trim(),
           data: {'nombre': _nombreCtrl.text.trim()},
         );
-        _mostrarMensaje('Cuenta creada. Por favor, verifica tu correo.');
+        _mostrarMensaje('Cuenta creada exitosamente.');
       } else {
         // Iniciar sesión
         await Supabase.instance.client.auth.signInWithPassword(
