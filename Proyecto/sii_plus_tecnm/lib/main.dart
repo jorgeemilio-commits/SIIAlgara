@@ -57,13 +57,13 @@ class WebRoleSelectionPage extends StatelessWidget {
             Container(
               width: double.infinity,
               color: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 40),
+              padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 40),
               child: const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     'Bienvenido al Sistema de Información Integral del Instituto Tecnológico de Los Mochis',
-                    style: TextStyle(fontSize: 42, fontWeight: FontWeight.bold, color: Color(0xFF003366)),
+                    style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: Color(0xFF003366)),
                   ),
                   SizedBox(height: 15),
                   Text(
@@ -89,7 +89,7 @@ class WebRoleSelectionPage extends StatelessWidget {
                       icon: Icons.person_add_alt_1,
                       buttonText: 'Iniciar Registro',
                       onTap: () {
-                        //Navigator.push(context, MaterialPageRoute(builder: (_) => const AspiranteHome()));
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => const AspiranteHome()));
                       },
                     ),
                     
