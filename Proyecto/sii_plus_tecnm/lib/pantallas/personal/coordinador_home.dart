@@ -14,9 +14,10 @@ class _CoordinadorHomeState extends State<CoordinadorHome> {
   bool _cargando = true;
   String _departamento = '';
   
-  // Datos para el resumen
+  // Datos para el resumen y las tablas
   int _total = 0, _pendientes = 0, _aceptados = 0;
   List<dynamic> _aspirantesPendientes = [];
+  List<dynamic> _estudiantesInscritos = []; // Nueva lista para la pestaña 3
 
   @override
   void initState() {
@@ -30,7 +31,7 @@ class _CoordinadorHomeState extends State<CoordinadorHome> {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return;
 
-      // Obtener info del coordinador
+      // 1. Obtener info del coordinador
       final coord = await Supabase.instance.client
           .from('coordinadores')
           .select('departamento_coordina')
@@ -39,23 +40,108 @@ class _CoordinadorHomeState extends State<CoordinadorHome> {
       
       _departamento = coord['departamento_coordina'];
 
-      // Obtener aspirantes para estadísticas y tabla
-      final data = await Supabase.instance.client
+      // 2. Obtener aspirantes
+      final aspirantesData = await Supabase.instance.client
           .from('aspirantes')
           .select()
           .eq('carrera_solicitada', _departamento);
 
+      // 3. Obtener estudiantes ya inscritos en esta carrera
+      final estudiantesData = await Supabase.instance.client
+          .from('estudiantes')
+          .select()
+          .eq('carrera_plan_estudios', _departamento)
+          .order('apellido_paterno', ascending: true);
+
       setState(() {
-        _total = data.length;
-        _pendientes = data.where((a) => a['estatus_admision'] == 'En proceso').length;
-        _aceptados = data.where((a) => a['estatus_admision'] == 'Aceptado').length;
-        _aspirantesPendientes = data.where((a) => a['estatus_admision'] == 'En proceso').toList();
+        _total = aspirantesData.length;
+        _pendientes = aspirantesData.where((a) => a['estatus_admision'] == 'En proceso').length;
+        _aceptados = estudiantesData.length; // Ahora leemos el total real de estudiantes
+        
+        _aspirantesPendientes = aspirantesData.where((a) => a['estatus_admision'] == 'En proceso').toList();
+        _estudiantesInscritos = estudiantesData;
+        
         _cargando = false;
       });
     } catch (e) {
       debugPrint("Error: $e");
       setState(() => _cargando = false);
     }
+  }
+
+  // Función para aprobar o rechazar
+  Future<void> _procesarAdmision(Map<String, dynamic> aspirante, bool aprobado) async {
+    setState(() => _cargando = true);
+    try {
+      if (aprobado) {
+        final matricula = '2026${DateTime.now().millisecond.toString().padLeft(4, '0')}';
+
+        // Pasa a la tabla oficial de estudiantes
+        await Supabase.instance.client.from('estudiantes').insert({
+          'matricula': matricula,
+          'nombres': aspirante['nombres'],
+          'apellido_paterno': aspirante['apellido_paterno'],
+          'apellido_materno': aspirante['apellido_materno'],
+          'curp': aspirante['curp'],
+          'correo_personal': aspirante['correo_personal'],
+          'carrera_plan_estudios': aspirante['carrera_solicitada'],
+          'promedio_total': aspirante['promedio_preparatoria'],
+          'id_auth': aspirante['id_auth'], 
+          'semestre_curso': 1,
+        });
+
+        await Supabase.instance.client
+            .from('aspirantes')
+            .update({'estatus_admision': 'Aceptado'})
+            .eq('folio_aspirante', aspirante['folio_aspirante']);
+
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Inscripción exitosa. Matrícula: $matricula'), backgroundColor: Colors.green));
+      } else {
+        await Supabase.instance.client
+            .from('aspirantes')
+            .update({'estatus_admision': 'Rechazado'})
+            .eq('folio_aspirante', aspirante['folio_aspirante']);
+            
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Solicitud rechazada'), backgroundColor: Colors.red));
+      }
+      _fetchData(); // Recarga las listas para actualizar las tablas visualmente
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      setState(() => _cargando = false);
+    }
+  }
+
+  void _mostrarDetalles(Map<String, dynamic> aspirante) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Revisar Folio: ${aspirante['folio_aspirante']}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Nombre: ${aspirante['nombres']} ${aspirante['apellido_paterno']}'),
+            Text('Promedio: ${aspirante['promedio_preparatoria']}'),
+            Text('CURP: ${aspirante['curp']}'),
+            const SizedBox(height: 20),
+            const Text('¿Desea formalizar la inscripción de este aspirante?', style: TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade800),
+            onPressed: () { Navigator.pop(context); _procesarAdmision(aspirante, false); },
+            child: const Text('Rechazar', style: TextStyle(color: Colors.white)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade800),
+            onPressed: () { Navigator.pop(context); _procesarAdmision(aspirante, true); },
+            child: const Text('Aprobar e Inscribir', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _cerrarSesion() async {
@@ -65,7 +151,6 @@ class _CoordinadorHomeState extends State<CoordinadorHome> {
 
   @override
   Widget build(BuildContext context) {
-    // Definimos las pestañas específicas para este rol
     final List<SiiNavTab> misTabs = [
       const SiiNavTab(label: 'Inicio', icon: Icons.dashboard),
       const SiiNavTab(label: 'Solicitudes', icon: Icons.people),
@@ -83,7 +168,11 @@ class _CoordinadorHomeState extends State<CoordinadorHome> {
       ),
       body: _cargando 
         ? const Center(child: CircularProgressIndicator())
-        : _tabActiva == 0 ? _buildInicio() : _tabActiva == 1 ? _buildSolicitudes() : _buildPlaceholder(),
+        : _tabActiva == 0 
+            ? _buildInicio() 
+            : _tabActiva == 1 
+                ? _buildSolicitudes() 
+                : _buildEstudiantes(), // Llamamos a la nueva pestaña
     );
   }
 
@@ -105,14 +194,12 @@ class _CoordinadorHomeState extends State<CoordinadorHome> {
               _resumenCard('Alumnos Inscritos', _aceptados.toString(), Colors.green, Icons.verified),
             ],
           ),
-          const SizedBox(height: 40),
-          // Aquí podrías agregar gráficas o avisos parroquiales en el futuro
         ],
       ),
     );
   }
 
-  // --- SECCIÓN 1: SOLICITUDES (TABLA FUNCIONAL) ---
+  // --- SECCIÓN 1: SOLICITUDES (TABLA DE ASPIRANTES) ---
   Widget _buildSolicitudes() {
     return Padding(
       padding: const EdgeInsets.all(40),
@@ -138,7 +225,14 @@ class _CoordinadorHomeState extends State<CoordinadorHome> {
                           DataCell(Text(a['folio_aspirante'])),
                           DataCell(Text('${a['nombres']} ${a['apellido_paterno']}')),
                           DataCell(Text(a['promedio_preparatoria'].toString())),
-                          DataCell(ElevatedButton(onPressed: () {}, child: const Text('Revisar'))),
+                          DataCell(
+                            ElevatedButton.icon(
+                              icon: const Icon(Icons.assignment_turned_in, size: 16),
+                              label: const Text('Evaluar'),
+                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF003366), foregroundColor: Colors.white),
+                              onPressed: () => _mostrarDetalles(a),
+                            )
+                          ),
                         ])).toList(),
                       ),
                     ],
@@ -150,7 +244,50 @@ class _CoordinadorHomeState extends State<CoordinadorHome> {
     );
   }
 
-  Widget _buildPlaceholder() => const Center(child: Text('Sección en desarrollo comercial.', style: TextStyle(fontSize: 18, color: Colors.grey)));
+  // --- SECCIÓN 2: ESTUDIANTES INSCRITOS (NUEVA TABLA) ---
+  Widget _buildEstudiantes() {
+    return Padding(
+      padding: const EdgeInsets.all(40),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Directorio de Estudiantes Oficiales', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
+          const SizedBox(height: 8),
+          const Text('Alumnos que han completado su proceso de admisión y cuentan con matrícula.', style: TextStyle(color: Colors.grey)),
+          const SizedBox(height: 20),
+          Expanded(
+            child: Card(
+              child: _estudiantesInscritos.isEmpty 
+                ? const Center(child: Text('Aún no hay estudiantes inscritos en este departamento.'))
+                : ListView(
+                    children: [
+                      DataTable(
+                        headingRowColor: MaterialStateProperty.all(Colors.green.shade50),
+                        columns: const [
+                          DataColumn(label: Text('Matrícula', style: TextStyle(fontWeight: FontWeight.bold))),
+                          DataColumn(label: Text('Nombre Completo', style: TextStyle(fontWeight: FontWeight.bold))),
+                          DataColumn(label: Text('Semestre', style: TextStyle(fontWeight: FontWeight.bold))),
+                          DataColumn(label: Text('Estatus', style: TextStyle(fontWeight: FontWeight.bold))),
+                        ],
+                        rows: _estudiantesInscritos.map((e) => DataRow(cells: [
+                          DataCell(Text(e['matricula'], style: const TextStyle(fontWeight: FontWeight.w600))),
+                          DataCell(Text('${e['apellido_paterno']} ${e['apellido_materno'] ?? ''} ${e['nombres']}')),
+                          DataCell(Text(e['semestre_curso'].toString())),
+                          DataCell(Chip(
+                            label: const Text('Activo', style: TextStyle(color: Colors.green, fontSize: 12)),
+                            backgroundColor: Colors.green.shade100,
+                            side: BorderSide.none,
+                          )),
+                        ])).toList(),
+                      ),
+                    ],
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _resumenCard(String tit, String val, Color col, IconData ic) {
     return Expanded(
