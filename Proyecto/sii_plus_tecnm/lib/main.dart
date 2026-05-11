@@ -117,7 +117,7 @@ class WebRoleSelectionPage extends StatelessWidget {
                       icon: Icons.manage_accounts,
                       buttonText: 'Ingresar al Portal',
                       onTap: () {
-                        //Navigator.push(context, MaterialPageRoute(builder: (_) => const PersonalLogin()));
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => const PersonalLogin()));
                       },
                     ),
                   ],
