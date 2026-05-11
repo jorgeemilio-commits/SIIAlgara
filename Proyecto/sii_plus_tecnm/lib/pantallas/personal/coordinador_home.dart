@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../widgets/sii_navbar.dart';
 
 class CoordinadorHome extends StatefulWidget {
   const CoordinadorHome({super.key});
@@ -9,159 +10,168 @@ class CoordinadorHome extends StatefulWidget {
 }
 
 class _CoordinadorHomeState extends State<CoordinadorHome> {
+  int _tabActiva = 0;
   bool _cargando = true;
   String _departamento = '';
-  List<dynamic> _listaAspirantes = [];
+  
+  // Datos para el resumen
+  int _total = 0, _pendientes = 0, _aceptados = 0;
+  List<dynamic> _aspirantesPendientes = [];
 
   @override
   void initState() {
     super.initState();
-    _cargarAspirantes();
+    _fetchData();
   }
 
-  Future<void> _cargarAspirantes() async {
+  Future<void> _fetchData() async {
+    setState(() => _cargando = true);
     try {
-      final userId = Supabase.instance.client.auth.currentUser?.id;
-      if (userId == null) return;
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) return;
 
-      // 1. Obtenemos el departamento que coordina el usuario actual
-      final coordData = await Supabase.instance.client
+      // Obtener info del coordinador
+      final coord = await Supabase.instance.client
           .from('coordinadores')
           .select('departamento_coordina')
-          .eq('id_auth', userId)
+          .eq('id_auth', user.id)
           .single();
+      
+      _departamento = coord['departamento_coordina'];
 
-      _departamento = coordData['departamento_coordina'] ?? 'Sin asignar';
-
-      // 2. Traemos a los aspirantes de esa carrera específica
-      final aspirantesData = await Supabase.instance.client
+      // Obtener aspirantes para estadísticas y tabla
+      final data = await Supabase.instance.client
           .from('aspirantes')
           .select()
-          .eq('carrera_solicitada', _departamento)
-          .order('fecha_registro', ascending: false); // Los más recientes primero
+          .eq('carrera_solicitada', _departamento);
 
-      if (mounted) {
-        setState(() {
-          _listaAspirantes = aspirantesData;
-          _cargando = false;
-        });
-      }
+      setState(() {
+        _total = data.length;
+        _pendientes = data.where((a) => a['estatus_admision'] == 'En proceso').length;
+        _aceptados = data.where((a) => a['estatus_admision'] == 'Aceptado').length;
+        _aspirantesPendientes = data.where((a) => a['estatus_admision'] == 'En proceso').toList();
+        _cargando = false;
+      });
     } catch (e) {
-      debugPrint('Error al cargar datos: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al cargar la lista de aspirantes: $e')),
-        );
-        setState(() => _cargando = false);
-      }
+      debugPrint("Error: $e");
+      setState(() => _cargando = false);
     }
   }
 
-  Future<void> _cerrarSesion() async {
+  void _cerrarSesion() async {
     await Supabase.instance.client.auth.signOut();
     if (mounted) Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
+    // Definimos las pestañas específicas para este rol
+    final List<SiiNavTab> misTabs = [
+      const SiiNavTab(label: 'Inicio', icon: Icons.dashboard),
+      const SiiNavTab(label: 'Solicitudes', icon: Icons.people),
+      const SiiNavTab(label: 'Estudiantes', icon: Icons.school),
+    ];
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Row(
-          children: [
-            Icon(Icons.admin_panel_settings),
-            SizedBox(width: 12),
-            Text('PANEL DE COORDINACIÓN'),
-          ],
-        ),
-        automaticallyImplyLeading: false,
-        actions: [
-          TextButton.icon(
-            icon: const Icon(Icons.logout, color: Colors.red),
-            label: const Text('Salir', style: TextStyle(color: Colors.red)),
-            onPressed: _cerrarSesion,
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: SiiNavbar(
+        titulo: 'SII - $_departamento',
+        tabs: misTabs,
+        indexSeleccionado: _tabActiva,
+        onTabSelected: (idx) => setState(() => _tabActiva = idx),
+        onLogout: _cerrarSesion,
+      ),
+      body: _cargando 
+        ? const Center(child: CircularProgressIndicator())
+        : _tabActiva == 0 ? _buildInicio() : _tabActiva == 1 ? _buildSolicitudes() : _buildPlaceholder(),
+    );
+  }
+
+  // --- SECCIÓN 0: INICIO (RESUMEN VISUAL) ---
+  Widget _buildInicio() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(40),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Estado del Ciclo Escolar', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
+          const SizedBox(height: 30),
+          Row(
+            children: [
+              _resumenCard('Aspirantes Totales', _total.toString(), Colors.blue, Icons.description),
+              const SizedBox(width: 20),
+              _resumenCard('Pendientes de Revisión', _pendientes.toString(), Colors.orange, Icons.pending),
+              const SizedBox(width: 20),
+              _resumenCard('Alumnos Inscritos', _aceptados.toString(), Colors.green, Icons.verified),
+            ],
           ),
-          const SizedBox(width: 16),
+          const SizedBox(height: 40),
+          // Aquí podrías agregar gráficas o avisos parroquiales en el futuro
         ],
       ),
-      body: _cargando
-          ? const Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: const EdgeInsets.all(32.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Aspirantes - $_departamento',
-                    style: const TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF003366),
-                    ),
+    );
+  }
+
+  // --- SECCIÓN 1: SOLICITUDES (TABLA FUNCIONAL) ---
+  Widget _buildSolicitudes() {
+    return Padding(
+      padding: const EdgeInsets.all(40),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Gestión de Aspirantes Pendientes', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 20),
+          Expanded(
+            child: Card(
+              child: _aspirantesPendientes.isEmpty 
+                ? const Center(child: Text('No hay solicitudes pendientes por el momento.'))
+                : ListView(
+                    children: [
+                      DataTable(
+                        columns: const [
+                          DataColumn(label: Text('Folio')),
+                          DataColumn(label: Text('Nombre')),
+                          DataColumn(label: Text('Promedio')),
+                          DataColumn(label: Text('Acción')),
+                        ],
+                        rows: _aspirantesPendientes.map((a) => DataRow(cells: [
+                          DataCell(Text(a['folio_aspirante'])),
+                          DataCell(Text('${a['nombres']} ${a['apellido_paterno']}')),
+                          DataCell(Text(a['promedio_preparatoria'].toString())),
+                          DataCell(ElevatedButton(onPressed: () {}, child: const Text('Revisar'))),
+                        ])).toList(),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Total de solicitudes encontradas: ${_listaAspirantes.length}',
-                    style: const TextStyle(fontSize: 16, color: Colors.grey),
-                  ),
-                  const Divider(height: 40),
-                  
-                  // Tabla de Datos
-                  Expanded(
-                    child: _listaAspirantes.isEmpty
-                        ? const Center(child: Text('No hay aspirantes registrados para esta carrera aún.'))
-                        : Card(
-                            elevation: 2,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            child: SingleChildScrollView(
-                              scrollDirection: Axis.horizontal, // Por si la pantalla es pequeña
-                              child: SingleChildScrollView(
-                                child: DataTable(
-                                  headingRowColor: MaterialStateProperty.all(Colors.blue.shade50),
-                                  columns: const [
-                                    DataColumn(label: Text('Folio', style: TextStyle(fontWeight: FontWeight.bold))),
-                                    DataColumn(label: Text('Nombre Completo', style: TextStyle(fontWeight: FontWeight.bold))),
-                                    DataColumn(label: Text('CURP', style: TextStyle(fontWeight: FontWeight.bold))),
-                                    DataColumn(label: Text('Promedio', style: TextStyle(fontWeight: FontWeight.bold))),
-                                    DataColumn(label: Text('Estatus', style: TextStyle(fontWeight: FontWeight.bold))),
-                                    DataColumn(label: Text('Acciones', style: TextStyle(fontWeight: FontWeight.bold))),
-                                  ],
-                                  rows: _listaAspirantes.map((aspirante) {
-                                    // Concatenamos el nombre usando la estructura de tu BD
-                                    final nombreCompleto = '${aspirante['nombres']} ${aspirante['apellido_paterno']} ${aspirante['apellido_materno'] ?? ''}';
-                                    
-                                    return DataRow(cells: [
-                                      DataCell(Text(aspirante['folio_aspirante'].toString())),
-                                      DataCell(Text(nombreCompleto)),
-                                      DataCell(Text(aspirante['curp'].toString())),
-                                      DataCell(Text(aspirante['promedio_preparatoria'].toString())),
-                                      DataCell(
-                                        Chip(
-                                          label: Text(aspirante['estatus_admision'].toString(), style: const TextStyle(fontSize: 12)),
-                                          backgroundColor: aspirante['estatus_admision'] == 'En proceso' ? Colors.orange.shade100 : Colors.green.shade100,
-                                        ),
-                                      ),
-                                      DataCell(
-                                        TextButton.icon(
-                                          icon: const Icon(Icons.manage_search, size: 18),
-                                          label: const Text('Revisar'),
-                                          onPressed: () {
-                                            // TODO: Aquí pondremos la lógica para abrir el detalle y aprobar/rechazar
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(content: Text('Próximamente: Evaluar folio ${aspirante['folio_aspirante']}')),
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    ]);
-                                  }).toList(),
-                                ),
-                              ),
-                            ),
-                          ),
-                  ),
-                ],
-              ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPlaceholder() => const Center(child: Text('Sección en desarrollo comercial.', style: TextStyle(fontSize: 18, color: Colors.grey)));
+
+  Widget _resumenCard(String tit, String val, Color col, IconData ic) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(30),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)],
+          border: Border(left: BorderSide(color: col, width: 6)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(ic, color: col, size: 30),
+            const SizedBox(height: 15),
+            Text(tit, style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.w600)),
+            Text(val, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
+          ],
+        ),
+      ),
     );
   }
 }
