@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'admin_home.dart';
 import 'coordinador_home.dart';
 import 'profesor_home.dart';
 
@@ -11,141 +12,167 @@ class PersonalLogin extends StatefulWidget {
 }
 
 class _PersonalLoginState extends State<PersonalLogin> {
-  bool _cargando = false;
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
+  bool _cargando = false;
 
-  Future<void> _iniciarSesion() async {
+  @override
+  void initState() {
+    super.initState();
+    _verificarSesionActiva();
+  }
+
+  // Verifica si ya hay una sesión guardada para saltar el login
+  Future<void> _verificarSesionActiva() async {
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session != null) {
+      _buscarRolYRedirigir(session.user.id);
+    }
+  }
+
+  Future<void> _acceder() async {
     if (_emailCtrl.text.isEmpty || _passCtrl.text.isEmpty) {
-      _mostrarMensaje('Por favor, ingresa correo y contraseña.');
+      _error('Por favor, completa todos los campos.');
       return;
     }
 
     setState(() => _cargando = true);
     try {
-      // 1. Iniciamos sesión en Supabase Auth
-      final res = await Supabase.instance.client.auth.signInWithPassword(
+      // 1. Autenticación en Supabase Auth
+      final authRes = await Supabase.instance.client.auth.signInWithPassword(
         email: _emailCtrl.text.trim(),
         password: _passCtrl.text.trim(),
       );
 
-      final user = res.user;
-      if (user != null) {
-        
-        // 2. Buscamos primero en la tabla de coordinadores
-        final dataCoordinador = await Supabase.instance.client
-            .from('coordinadores')
-            .select('numero_nomina') // Solo traemos un dato ligero para verificar existencia
-            .eq('id_auth', user.id)
-            .maybeSingle();
-
-        if (dataCoordinador != null) {
-          if (!mounted) return;
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const CoordinadorHome()));
-          return; // Terminamos la ejecución aquí
-        }
-
-        // 3. Si no es coordinador, buscamos en la tabla de profesores
-        final dataProfesor = await Supabase.instance.client
-            .from('profesores')
-            .select('numero_nomina')
-            .eq('id_auth', user.id)
-            .maybeSingle();
-
-        if (dataProfesor != null) {
-          if (!mounted) return;
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const ProfesorHome()));
-          return; // Terminamos la ejecución aquí
-        }
-
-        // 4. Si no está en ninguna de las dos tablas
-        _mostrarMensaje('Acceso denegado. Su cuenta no está asignada como personal activo.');
-        await Supabase.instance.client.auth.signOut();
+      if (authRes.user != null) {
+        await _buscarRolYRedirigir(authRes.user!.id);
       }
     } catch (e) {
-      _mostrarMensaje('Credenciales incorrectas o error de conexión.');
+      _error('Credenciales incorrectas o error de conexión.');
+      setState(() => _cargando = false);
+    }
+  }
+
+  // Lógica central de redirección por tablas 
+  Future<void> _buscarRolYRedirigir(String userId) async {
+    try {
+      // 1. ¿Es Administrador?
+      final admin = await Supabase.instance.client
+          .from('administradores')
+          .select('id_admin')
+          .eq('id_auth', userId)
+          .maybeSingle();
+
+      if (admin != null && mounted) {
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AdminHome()));
+        return;
+      }
+
+      // 2. ¿Es Coordinador? 
+      final coord = await Supabase.instance.client
+          .from('coordinadores')
+          .select('numero_nomina')
+          .eq('id_auth', userId)
+          .maybeSingle();
+
+      if (coord != null && mounted) {
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const CoordinadorHome()));
+        return;
+      }
+
+      // 3. ¿Es Profesor? 
+      final prof = await Supabase.instance.client
+          .from('profesores')
+          .select('numero_nomina')
+          .eq('id_auth', userId)
+          .maybeSingle();
+
+      if (prof != null && mounted) {
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const ProfesorHome()));
+        return;
+      }
+
+      // Si no está en ninguna tabla, cerramos sesión por seguridad
+      await Supabase.instance.client.auth.signOut();
+      _error('Acceso denegado: El usuario no está registrado en el personal autorizado.');
+      
+    } catch (e) {
+      _error('Error al verificar permisos.');
     } finally {
       if (mounted) setState(() => _cargando = false);
     }
   }
 
-  void _mostrarMensaje(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  void _error(String m) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m), backgroundColor: Colors.red));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF3F4F6),
       appBar: AppBar(
-        title: const Row(
-          children: [
-            Icon(Icons.manage_accounts),
-            SizedBox(width: 12),
-            Text('ACCESO DE PERSONAL'),
-          ],
-        ),
+        title: const Text('Portal de Personal Institucional'),
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        foregroundColor: const Color(0xFF003366),
       ),
       body: Center(
         child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 450), 
-              child: Card(
-                elevation: 4,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                child: Padding(
-                  padding: const EdgeInsets.all(40.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Icon(Icons.badge, size: 80, color: Color(0xFF003366)),
-                      const SizedBox(height: 20),
-                      const Text(
-                        'Portal Institucional',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF003366)),
+          child: Container(
+            width: 450,
+            padding: const EdgeInsets.all(40),
+            child: Card(
+              elevation: 8,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              child: Padding(
+                padding: const EdgeInsets.all(40.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.admin_panel_settings, size: 80, color: Color(0xFF003366)),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'Bienvenido al SII',
+                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF003366)),
+                    ),
+                    const SizedBox(height: 10),
+                    const Text('Ingresa tus credenciales institucionales', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+                    const SizedBox(height: 40),
+                    TextField(
+                      controller: _emailCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Correo Electrónico',
+                        prefixIcon: Icon(Icons.email_outlined),
+                        border: OutlineInputBorder(),
                       ),
-                      const SizedBox(height: 10),
-                      const Text(
-                        'Ingresa con tu correo y contraseña asignada por el instituto.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.grey),
+                    ),
+                    const SizedBox(height: 20),
+                    TextField(
+                      controller: _passCtrl,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Contraseña',
+                        prefixIcon: Icon(Icons.lock_outline),
+                        border: OutlineInputBorder(),
                       ),
-                      const SizedBox(height: 30),
-                      TextFormField(
-                        controller: _emailCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Correo Institucional', 
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.email),
-                        ),
-                      ),
-                      const SizedBox(height: 15),
-                      TextFormField(
-                        controller: _passCtrl,
-                        obscureText: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Contraseña', 
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.lock),
-                        ),
-                        onFieldSubmitted: (_) => _iniciarSesion(), 
-                      ),
-                      const SizedBox(height: 30),
-                      ElevatedButton(
+                    ),
+                    const SizedBox(height: 30),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 55,
+                      child: ElevatedButton(
+                        onPressed: _cargando ? null : _acceder,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF003366),
-                          padding: const EdgeInsets.symmetric(vertical: 18),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
-                        onPressed: _cargando ? null : _iniciarSesion,
                         child: _cargando 
-                          ? const CircularProgressIndicator(color: Colors.white)
+                          ? const CircularProgressIndicator(color: Colors.white) 
                           : const Text('INICIAR SESIÓN', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
