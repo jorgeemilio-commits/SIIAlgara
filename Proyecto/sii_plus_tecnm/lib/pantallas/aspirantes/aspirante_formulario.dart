@@ -124,10 +124,6 @@ class _AspiranteFormularioState extends State<AspiranteFormulario> {
         ],
       ),
       body: Center(
-        // CONTROL DE VISTAS ESTRICTO:
-        // 1. Si está cargando, muestra una rueda (No se ve el formulario)
-        // 2. Si ya tiene registro, muestra el estatus (No se ve el formulario)
-        // 3. Solo si no tiene registro, muestra el formulario
         child: _cargandoInicial 
           ? const CircularProgressIndicator() 
           : _tieneRegistro 

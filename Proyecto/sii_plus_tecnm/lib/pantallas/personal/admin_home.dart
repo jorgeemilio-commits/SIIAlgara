@@ -13,19 +13,27 @@ class _AdminHomeState extends State<AdminHome> {
   int _tabActiva = 0;
   bool _cargando = false;
 
-  // --- CONTROLADORES PARA TODOS LOS CAMPOS SQL ---
+  // --- CONTROLADORES ACTUALIZADOS ---
   final _nominaCtrl = TextEditingController();
   final _nombresCtrl = TextEditingController();
   final _apellidosCtrl = TextEditingController();
   final _curpCtrl = TextEditingController();
   final _rfcCtrl = TextEditingController();
-  final _fechaNacCtrl = TextEditingController(); // Formato YYYY-MM-DD
+  final _fechaNacCtrl = TextEditingController();
   String? _sexoSeleccionado;
+  
+  // Lista de departamentos oficiales
+  String? _deptoSeleccionado;
+  final List<String> _departamentos = [
+    'Arquitectura', 'Contador Público', 'Ingeniería Bioquímica', 'Ingeniería Electromecánica',
+    'Ingeniería Electrónica', 'Ingeniería en Gestión Empresarial', 'Ingeniería en Industrias Alimentarias',
+    'Ingeniería Industrial', 'Ingeniería en Innovación Agrícola Sustentable', 'Ingeniería Mecatrónica',
+    'Ingeniería Informática', 'Licenciatura en Administración', 'Licenciatura en Biología', 'Ingeniería Química'
+  ];
+
   final _domicilioCtrl = TextEditingController();
   final _telefonoCtrl = TextEditingController();
   final _correoPersonalCtrl = TextEditingController();
-  final _deptoCoordCtrl = TextEditingController();
-  final _oficinaCtrl = TextEditingController();
   final _extensionCtrl = TextEditingController();
   
   // Credenciales Auth
@@ -37,18 +45,15 @@ class _AdminHomeState extends State<AdminHome> {
   final String _serviceRoleKey = 'TU-SERVICE-ROLE-KEY';
 
   Future<void> _guardarCoordinador() async {
-    if (_nominaCtrl.text.isEmpty || _correoInstCtrl.text.isEmpty || _passCtrl.text.isEmpty) {
-      _mensaje('Nómina, Correo Institucional y Contraseña son obligatorios.', Colors.red);
+    if (_nominaCtrl.text.isEmpty || _correoInstCtrl.text.isEmpty || _passCtrl.text.isEmpty || _deptoSeleccionado == null) {
+      _mensaje('Nómina, Correo Institucional, Contraseña y Departamento son obligatorios.', Colors.red);
       return;
     }
 
     setState(() => _cargando = true);
-    
-    // 1. Cliente temporal con privilegios de Administrador para Auth
     final adminClient = SupabaseClient(_supabaseUrl, _serviceRoleKey);
 
     try {
-      // 2. Crear usuario en Authentication
       final authRes = await adminClient.auth.admin.createUser(
         AdminUserAttributes(
           email: _correoInstCtrl.text.trim(),
@@ -59,7 +64,6 @@ class _AdminHomeState extends State<AdminHome> {
 
       final nuevoIdAuth = authRes.user!.id;
 
-      // 3. Insertar TODOS los campos en la tabla de coordinadores
       await Supabase.instance.client.from('coordinadores').insert({
         'numero_nomina': _nominaCtrl.text.trim(),
         'nombres': _nombresCtrl.text.trim(),
@@ -71,8 +75,7 @@ class _AdminHomeState extends State<AdminHome> {
         'domicilio_completo': _domicilioCtrl.text.trim(),
         'telefono': _telefonoCtrl.text.trim(),
         'correo_personal': _correoPersonalCtrl.text.trim(),
-        'departamento_coordina': _deptoCoordCtrl.text.trim(),
-        'oficina_atencion': _oficinaCtrl.text.trim(),
+        'departamento_coordina': _deptoSeleccionado, // Valor del dropdown
         'extension_telefonica': _extensionCtrl.text.trim(),
         'correo_institucional': _correoInstCtrl.text.trim(),
         'id_auth': nuevoIdAuth,
@@ -94,9 +97,11 @@ class _AdminHomeState extends State<AdminHome> {
     _nominaCtrl.clear(); _nombresCtrl.clear(); _apellidosCtrl.clear();
     _curpCtrl.clear(); _rfcCtrl.clear(); _fechaNacCtrl.clear();
     _domicilioCtrl.clear(); _telefonoCtrl.clear(); _correoPersonalCtrl.clear();
-    _deptoCoordCtrl.clear(); _oficinaCtrl.clear(); _extensionCtrl.clear();
-    _correoInstCtrl.clear(); _passCtrl.clear();
-    setState(() => _sexoSeleccionado = null);
+    _extensionCtrl.clear(); _correoInstCtrl.clear(); _passCtrl.clear();
+    setState(() {
+      _sexoSeleccionado = null;
+      _deptoSeleccionado = null;
+    });
   }
 
   void _mensaje(String m, Color c) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m), backgroundColor: c));
@@ -141,7 +146,7 @@ class _AdminHomeState extends State<AdminHome> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Ficha de Registro Completa: Coordinador', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
+                  const Text('Ficha de Registro: Coordinador', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
                   const Divider(height: 40),
 
                   _seccionTitulo('1. Credenciales de Acceso'),
@@ -149,12 +154,12 @@ class _AdminHomeState extends State<AdminHome> {
                     children: [
                       Expanded(child: _campo('Correo Institucional', _correoInstCtrl)),
                       const SizedBox(width: 15),
-                      Expanded(child: _campo('Contraseña', _passCtrl, oculto: true)),
+                      Expanded(child: _campo('Contraseña Temporal', _passCtrl, oculto: true)),
                     ],
                   ),
                   const SizedBox(height: 30),
 
-                  _seccionTitulo('2. Datos Personales Básicos'),
+                  _seccionTitulo('2. Datos Personales'),
                   Row(
                     children: [
                       Expanded(child: _campo('Número de Nómina', _nominaCtrl)),
@@ -176,7 +181,6 @@ class _AdminHomeState extends State<AdminHome> {
                           items: const [
                             DropdownMenuItem(value: 'Masculino', child: Text('Masculino')),
                             DropdownMenuItem(value: 'Femenino', child: Text('Femenino')),
-                            DropdownMenuItem(value: 'Otro', child: Text('Otro')),
                           ],
                           onChanged: (val) => setState(() => _sexoSeleccionado = val),
                         ),
@@ -200,7 +204,7 @@ class _AdminHomeState extends State<AdminHome> {
                     children: [
                       Expanded(child: _campo('Teléfono', _telefonoCtrl)),
                       const SizedBox(width: 15),
-                      Expanded(child: _campo('Correo Electrónico Personal', _correoPersonalCtrl)),
+                      Expanded(child: _campo('Correo Personal', _correoPersonalCtrl)),
                     ],
                   ),
                   const SizedBox(height: 30),
@@ -208,9 +212,20 @@ class _AdminHomeState extends State<AdminHome> {
                   _seccionTitulo('4. Datos Laborales'),
                   Row(
                     children: [
-                      Expanded(child: _campo('Departamento que Coordina', _deptoCoordCtrl)),
-                      const SizedBox(width: 15),
-                      Expanded(child: _campo('Oficina de Atención', _oficinaCtrl)),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: _deptoSeleccionado,
+                          isExpanded: true, // Asegura que el texto largo no se corte
+                          decoration: const InputDecoration(labelText: 'Departamento que Coordina', border: OutlineInputBorder(), filled: true, fillColor: Colors.white),
+                          items: _departamentos.map((String depto) {
+                            return DropdownMenuItem<String>(
+                              value: depto,
+                              child: Text(depto, style: const TextStyle(fontSize: 13)),
+                            );
+                          }).toList(),
+                          onChanged: (val) => setState(() => _deptoSeleccionado = val),
+                        ),
+                      ),
                       const SizedBox(width: 15),
                       Expanded(child: _campo('Extensión Telefónica', _extensionCtrl)),
                     ],
@@ -223,7 +238,7 @@ class _AdminHomeState extends State<AdminHome> {
                     child: ElevatedButton(
                       onPressed: _guardarCoordinador,
                       style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF003366), shape: const StadiumBorder()),
-                      child: const Text('CREAR ACCESO Y GUARDAR', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                      child: const Text('REGISTRAR COORDINADOR', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                     ),
                   )
                 ],
