@@ -13,7 +13,7 @@ class _AdminHomeState extends State<AdminHome> {
   int _tabActiva = 0;
   bool _cargando = false;
 
-  // --- CONTROLADORES ACTUALIZADOS ---
+  // --- Campos de formulario ---
   final _nominaCtrl = TextEditingController();
   final _nombresCtrl = TextEditingController();
   final _apellidosCtrl = TextEditingController();
@@ -22,7 +22,6 @@ class _AdminHomeState extends State<AdminHome> {
   final _fechaNacCtrl = TextEditingController();
   String? _sexoSeleccionado;
   
-  // Lista de departamentos oficiales
   String? _deptoSeleccionado;
   final List<String> _departamentos = [
     'Arquitectura', 'Contador Público', 'Ingeniería Bioquímica', 'Ingeniería Electromecánica',
@@ -35,14 +34,12 @@ class _AdminHomeState extends State<AdminHome> {
   final _telefonoCtrl = TextEditingController();
   final _correoPersonalCtrl = TextEditingController();
   final _extensionCtrl = TextEditingController();
-  
-  // Credenciales Auth
   final _correoInstCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
 
-  // ATENCIÓN: Reemplaza esto con tus credenciales de Supabase
-  final String _supabaseUrl = 'https://TU-URL-DE-SUPABASE.supabase.co';
-  final String _serviceRoleKey = 'TU-SERVICE-ROLE-KEY';
+// Configuración de Supabase Admin
+  final String _supabaseUrl = 'https://slrcguaqmlftohfmzzkt.supabase.co';
+  final String _serviceRoleKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNscmNndWFxbWxmdG9oZm16emt0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzQ4Mzk2MSwiZXhwIjoyMDkzMDU5OTYxfQ.9rvVIhhiVv73Osiv5cdC5UGrydRhM5q5XsvusyuU32A';
 
   Future<void> _guardarCoordinador() async {
     if (_nominaCtrl.text.isEmpty || _correoInstCtrl.text.isEmpty || _passCtrl.text.isEmpty || _deptoSeleccionado == null) {
@@ -64,6 +61,7 @@ class _AdminHomeState extends State<AdminHome> {
 
       final nuevoIdAuth = authRes.user!.id;
 
+// Insertamos el nuevo coordinador en la tabla 'coordinadores' con el ID de autenticación
       await Supabase.instance.client.from('coordinadores').insert({
         'numero_nomina': _nominaCtrl.text.trim(),
         'nombres': _nombresCtrl.text.trim(),
@@ -75,8 +73,7 @@ class _AdminHomeState extends State<AdminHome> {
         'domicilio_completo': _domicilioCtrl.text.trim(),
         'telefono': _telefonoCtrl.text.trim(),
         'correo_personal': _correoPersonalCtrl.text.trim(),
-        'departamento_coordina': _deptoSeleccionado, // Valor del dropdown
-        'extension_telefonica': _extensionCtrl.text.trim(),
+        'departamento_coordina': _deptoSeleccionado,
         'correo_institucional': _correoInstCtrl.text.trim(),
         'id_auth': nuevoIdAuth,
       });
@@ -93,11 +90,12 @@ class _AdminHomeState extends State<AdminHome> {
     }
   }
 
+// Limpia todos los campos del formulario y resetea las selecciones
   void _limpiarFormulario() {
     _nominaCtrl.clear(); _nombresCtrl.clear(); _apellidosCtrl.clear();
     _curpCtrl.clear(); _rfcCtrl.clear(); _fechaNacCtrl.clear();
     _domicilioCtrl.clear(); _telefonoCtrl.clear(); _correoPersonalCtrl.clear();
-    _extensionCtrl.clear(); _correoInstCtrl.clear(); _passCtrl.clear();
+    _correoInstCtrl.clear(); _passCtrl.clear();
     setState(() {
       _sexoSeleccionado = null;
       _deptoSeleccionado = null;
@@ -154,7 +152,7 @@ class _AdminHomeState extends State<AdminHome> {
                     children: [
                       Expanded(child: _campo('Correo Institucional', _correoInstCtrl)),
                       const SizedBox(width: 15),
-                      Expanded(child: _campo('Contraseña Temporal', _passCtrl, oculto: true)),
+                      Expanded(child: _campo('Contraseña', _passCtrl, oculto: true)),
                     ],
                   ),
                   const SizedBox(height: 30),
@@ -226,8 +224,6 @@ class _AdminHomeState extends State<AdminHome> {
                           onChanged: (val) => setState(() => _deptoSeleccionado = val),
                         ),
                       ),
-                      const SizedBox(width: 15),
-                      Expanded(child: _campo('Extensión Telefónica', _extensionCtrl)),
                     ],
                   ),
 
