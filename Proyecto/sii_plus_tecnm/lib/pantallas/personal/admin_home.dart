@@ -13,7 +13,10 @@ class _AdminHomeState extends State<AdminHome> {
   int _tabActiva = 0;
   bool _cargando = false;
 
-  // --- Campos de formulario ---
+  // Variable para alternar entre perfiles
+  String _tipoPersonal = 'coordinador';
+
+  // --- Campos de formulario (Comunes y Coordinador) ---
   final _nominaCtrl = TextEditingController();
   final _nombresCtrl = TextEditingController();
   final _apellidosCtrl = TextEditingController();
@@ -30,20 +33,36 @@ class _AdminHomeState extends State<AdminHome> {
     'Ingeniería Informática', 'Licenciatura en Administración', 'Licenciatura en Biología', 'Ingeniería Química'
   ];
 
-  final _domicilioCtrl = TextEditingController();
+  final _domicilioCtrl = TextEditingController(); // domicilio_completo (coordinador)
   final _telefonoCtrl = TextEditingController();
   final _correoPersonalCtrl = TextEditingController();
-  final _extensionCtrl = TextEditingController();
   final _correoInstCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
 
-// Configuración de Supabase Admin
+  // --- Nuevos campos de formulario (Específicos para Profesores) ---
+  final _paternoCtrl = TextEditingController();
+  final _maternoCtrl = TextEditingController();
+  final _lugarNacCtrl = TextEditingController();
+  String? _estadoCivilSeleccionado;
+  final _domicilioActualCtrl = TextEditingController();
+  final _coloniaCtrl = TextEditingController();
+  final _cpCtrl = TextEditingController();
+  final _localidadCtrl = TextEditingController();
+  final _entidadCtrl = TextEditingController();
+
+  // Configuración de Supabase Admin
   final String _supabaseUrl = 'https://slrcguaqmlftohfmzzkt.supabase.co';
   final String _serviceRoleKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNscmNndWFxbWxmdG9oZm16emt0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzQ4Mzk2MSwiZXhwIjoyMDkzMDU5OTYxfQ.9rvVIhhiVv73Osiv5cdC5UGrydRhM5q5XsvusyuU32A';
 
-  Future<void> _guardarCoordinador() async {
-    if (_nominaCtrl.text.isEmpty || _correoInstCtrl.text.isEmpty || _passCtrl.text.isEmpty || _deptoSeleccionado == null) {
-      _mensaje('Nómina, Correo Institucional, Contraseña y Departamento son obligatorios.', Colors.red);
+  Future<void> _guardarPersonal() async {
+    // Validación ajustada: el departamento solo es obligatorio para coordinadores
+    if (_nominaCtrl.text.isEmpty || _correoInstCtrl.text.isEmpty || _passCtrl.text.isEmpty) {
+      _mensaje('Nómina, Correo Institucional y Contraseña son obligatorios.', Colors.red);
+      return;
+    }
+    
+    if (_tipoPersonal == 'coordinador' && _deptoSeleccionado == null) {
+      _mensaje('El Departamento que Coordina es obligatorio.', Colors.red);
       return;
     }
 
@@ -61,24 +80,50 @@ class _AdminHomeState extends State<AdminHome> {
 
       final nuevoIdAuth = authRes.user!.id;
 
-// Insertamos el nuevo coordinador en la tabla 'coordinadores' con el ID de autenticación
-      await Supabase.instance.client.from('coordinadores').insert({
-        'numero_nomina': _nominaCtrl.text.trim(),
-        'nombres': _nombresCtrl.text.trim(),
-        'apellidos': _apellidosCtrl.text.trim(),
-        'curp': _curpCtrl.text.trim(),
-        'rfc': _rfcCtrl.text.trim(),
-        'fecha_nacimiento': _fechaNacCtrl.text.isEmpty ? null : _fechaNacCtrl.text.trim(),
-        'sexo': _sexoSeleccionado,
-        'domicilio_completo': _domicilioCtrl.text.trim(),
-        'telefono': _telefonoCtrl.text.trim(),
-        'correo_personal': _correoPersonalCtrl.text.trim(),
-        'departamento_coordina': _deptoSeleccionado,
-        'correo_institucional': _correoInstCtrl.text.trim(),
-        'id_auth': nuevoIdAuth,
-      });
+      if (_tipoPersonal == 'coordinador') {
+        // Insertamos el nuevo coordinador
+        await Supabase.instance.client.from('coordinadores').insert({
+          'numero_nomina': _nominaCtrl.text.trim(),
+          'nombres': _nombresCtrl.text.trim(),
+          'apellidos': _apellidosCtrl.text.trim(),
+          'curp': _curpCtrl.text.trim(),
+          'rfc': _rfcCtrl.text.trim(),
+          'fecha_nacimiento': _fechaNacCtrl.text.isEmpty ? null : _fechaNacCtrl.text.trim(),
+          'sexo': _sexoSeleccionado,
+          'domicilio_completo': _domicilioCtrl.text.trim(),
+          'telefono': _telefonoCtrl.text.trim(),
+          'correo_personal': _correoPersonalCtrl.text.trim(),
+          'departamento_coordina': _deptoSeleccionado,
+          'correo_institucional': _correoInstCtrl.text.trim(),
+          'id_auth': nuevoIdAuth,
+        });
+        _mensaje('Coordinador creado y vinculado exitosamente.', Colors.green);
+      } else {
+        // Insertamos el nuevo profesor omitiendo los datos laborales
+        await Supabase.instance.client.from('profesores').insert({
+          'numero_nomina': _nominaCtrl.text.trim(),
+          'nombres': _nombresCtrl.text.trim(),
+          'apellido_paterno': _paternoCtrl.text.trim(),
+          'apellido_materno': _maternoCtrl.text.trim(),
+          'curp': _curpCtrl.text.trim(),
+          'rfc': _rfcCtrl.text.trim(),
+          'lugar_nacimiento': _lugarNacCtrl.text.trim(),
+          'fecha_nacimiento': _fechaNacCtrl.text.isEmpty ? null : _fechaNacCtrl.text.trim(),
+          'sexo': _sexoSeleccionado,
+          'estado_civil': _estadoCivilSeleccionado,
+          'domicilio_actual': _domicilioActualCtrl.text.trim(),
+          'colonia': _coloniaCtrl.text.trim(),
+          'codigo_postal': _cpCtrl.text.trim(),
+          'localidad': _localidadCtrl.text.trim(),
+          'entidad_federativa': _entidadCtrl.text.trim(),
+          'telefono': _telefonoCtrl.text.trim(),
+          'correo_personal': _correoPersonalCtrl.text.trim(),
+          'correo_institucional': _correoInstCtrl.text.trim(),
+          'id_auth': nuevoIdAuth,
+        });
+        _mensaje('Profesor creado y vinculado exitosamente.', Colors.green);
+      }
 
-      _mensaje('Coordinador creado y vinculado exitosamente.', Colors.green);
       _limpiarFormulario();
     } on AuthException catch (ae) {
       _mensaje('Error de Autenticación: ${ae.message}', Colors.red);
@@ -90,15 +135,18 @@ class _AdminHomeState extends State<AdminHome> {
     }
   }
 
-// Limpia todos los campos del formulario y resetea las selecciones
   void _limpiarFormulario() {
     _nominaCtrl.clear(); _nombresCtrl.clear(); _apellidosCtrl.clear();
     _curpCtrl.clear(); _rfcCtrl.clear(); _fechaNacCtrl.clear();
     _domicilioCtrl.clear(); _telefonoCtrl.clear(); _correoPersonalCtrl.clear();
     _correoInstCtrl.clear(); _passCtrl.clear();
+    _paternoCtrl.clear(); _maternoCtrl.clear(); _lugarNacCtrl.clear();
+    _domicilioActualCtrl.clear(); _coloniaCtrl.clear(); _cpCtrl.clear();
+    _localidadCtrl.clear(); _entidadCtrl.clear();
     setState(() {
       _sexoSeleccionado = null;
       _deptoSeleccionado = null;
+      _estadoCivilSeleccionado = null;
     });
   }
 
@@ -108,7 +156,7 @@ class _AdminHomeState extends State<AdminHome> {
   Widget build(BuildContext context) {
     final List<SiiNavTab> adminTabs = [
       const SiiNavTab(label: 'Inicio', icon: Icons.admin_panel_settings),
-      const SiiNavTab(label: 'Alta Coordinadores', icon: Icons.person_add),
+      const SiiNavTab(label: 'Alta de Personal', icon: Icons.person_add),
       const SiiNavTab(label: 'Directorio', icon: Icons.badge),
     ];
 
@@ -144,8 +192,29 @@ class _AdminHomeState extends State<AdminHome> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Ficha de Registro: Coordinador', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
-                  const Divider(height: 40),
+                  const Text('Ficha de Registro de Personal', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
+                  const Divider(height: 30),
+
+                  // --- SECCIÓN: TIPO DE PERFIL ---
+                  Row(
+                    children: [
+                      const Text('Tipo de personal a registrar: ', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      const SizedBox(width: 20),
+                      DropdownButton<String>(
+                        value: _tipoPersonal,
+                        items: const [
+                          DropdownMenuItem(value: 'coordinador', child: Text('Coordinador Institucional')),
+                          DropdownMenuItem(value: 'profesor', child: Text('Profesor Docente')),
+                        ],
+                        onChanged: (val) {
+                          setState(() {
+                            _tipoPersonal = val!;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 30),
 
                   _seccionTitulo('1. Credenciales de Acceso'),
                   Row(
@@ -160,14 +229,25 @@ class _AdminHomeState extends State<AdminHome> {
                   _seccionTitulo('2. Datos Personales'),
                   Row(
                     children: [
-                      Expanded(child: _campo('Número de Nómina', _nominaCtrl)),
+                      Expanded(flex: 2, child: _campo('Número de Nómina', _nominaCtrl)),
                       const SizedBox(width: 15),
-                      Expanded(child: _campo('Nombres', _nombresCtrl)),
-                      const SizedBox(width: 15),
-                      Expanded(child: _campo('Apellidos', _apellidosCtrl)),
+                      Expanded(flex: 3, child: _campo('Nombres', _nombresCtrl)),
                     ],
                   ),
                   const SizedBox(height: 15),
+                  
+                  if (_tipoPersonal == 'coordinador')
+                    _campo('Apellidos Completos', _apellidosCtrl)
+                  else
+                    Row(
+                      children: [
+                        Expanded(child: _campo('Apellido Paterno', _paternoCtrl)),
+                        const SizedBox(width: 15),
+                        Expanded(child: _campo('Apellido Materno', _maternoCtrl)),
+                      ],
+                    ),
+                  const SizedBox(height: 15),
+                  
                   Row(
                     children: [
                       Expanded(child: _campo('Fecha de Nacimiento (YYYY-MM-DD)', _fechaNacCtrl, hint: 'Ej: 1980-05-24')),
@@ -185,6 +265,29 @@ class _AdminHomeState extends State<AdminHome> {
                       ),
                     ],
                   ),
+                  
+                  if (_tipoPersonal == 'profesor') ...[
+                    const SizedBox(height: 15),
+                    Row(
+                      children: [
+                        Expanded(child: _campo('Lugar de Nacimiento', _lugarNacCtrl)),
+                        const SizedBox(width: 15),
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: _estadoCivilSeleccionado,
+                            decoration: const InputDecoration(labelText: 'Estado Civil', border: OutlineInputBorder(), filled: true, fillColor: Colors.white),
+                            items: const [
+                              DropdownMenuItem(value: 'Soltero(a)', child: Text('Soltero(a)')),
+                              DropdownMenuItem(value: 'Casado(a)', child: Text('Casado(a)')),
+                              DropdownMenuItem(value: 'Divorciado(a)', child: Text('Divorciado(a)')),
+                              DropdownMenuItem(value: 'Viudo(a)', child: Text('Viudo(a)')),
+                            ],
+                            onChanged: (val) => setState(() => _estadoCivilSeleccionado = val),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 30),
 
                   _seccionTitulo('3. Identificación y Contacto'),
@@ -196,8 +299,30 @@ class _AdminHomeState extends State<AdminHome> {
                     ],
                   ),
                   const SizedBox(height: 15),
-                  _campo('Domicilio Completo', _domicilioCtrl),
+                  
+                  if (_tipoPersonal == 'coordinador')
+                    _campo('Domicilio Completo', _domicilioCtrl)
+                  else ...[
+                    Row(
+                      children: [
+                        Expanded(flex: 2, child: _campo('Domicilio Actual (Calle y Número)', _domicilioActualCtrl)),
+                        const SizedBox(width: 15),
+                        Expanded(flex: 1, child: _campo('Colonia', _coloniaCtrl)),
+                      ],
+                    ),
+                    const SizedBox(height: 15),
+                    Row(
+                      children: [
+                        Expanded(child: _campo('Código Postal', _cpCtrl, maxLength: 5)),
+                        const SizedBox(width: 15),
+                        Expanded(child: _campo('Localidad/Ciudad', _localidadCtrl)),
+                        const SizedBox(width: 15),
+                        Expanded(child: _campo('Entidad Federativa', _entidadCtrl)),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 15),
+                  
                   Row(
                     children: [
                       Expanded(child: _campo('Teléfono', _telefonoCtrl)),
@@ -205,36 +330,41 @@ class _AdminHomeState extends State<AdminHome> {
                       Expanded(child: _campo('Correo Personal', _correoPersonalCtrl)),
                     ],
                   ),
-                  const SizedBox(height: 30),
 
-                  _seccionTitulo('4. Datos Laborales'),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          value: _deptoSeleccionado,
-                          isExpanded: true, // Asegura que el texto largo no se corte
-                          decoration: const InputDecoration(labelText: 'Departamento que Coordina', border: OutlineInputBorder(), filled: true, fillColor: Colors.white),
-                          items: _departamentos.map((String depto) {
-                            return DropdownMenuItem<String>(
-                              value: depto,
-                              child: Text(depto, style: const TextStyle(fontSize: 13)),
-                            );
-                          }).toList(),
-                          onChanged: (val) => setState(() => _deptoSeleccionado = val),
-                        ),
+                  // La sección Laboral ahora solo es visible si es coordinador
+                  if (_tipoPersonal == 'coordinador') ...[
+                    const SizedBox(height: 30),
+                    _seccionTitulo('4. Datos Laborales'),
+                    DropdownButtonFormField<String>(
+                      value: _deptoSeleccionado,
+                      isExpanded: true, 
+                      decoration: const InputDecoration(
+                        labelText: 'Departamento que Coordina', 
+                        border: OutlineInputBorder(), 
+                        filled: true, 
+                        fillColor: Colors.white
                       ),
-                    ],
-                  ),
+                      items: _departamentos.map((String depto) {
+                        return DropdownMenuItem<String>(
+                          value: depto,
+                          child: Text(depto, style: const TextStyle(fontSize: 13)),
+                        );
+                      }).toList(),
+                      onChanged: (val) => setState(() => _deptoSeleccionado = val),
+                    ),
+                  ],
 
                   const SizedBox(height: 50),
                   SizedBox(
                     width: double.infinity,
                     height: 60,
                     child: ElevatedButton(
-                      onPressed: _guardarCoordinador,
+                      onPressed: _guardarPersonal,
                       style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF003366), shape: const StadiumBorder()),
-                      child: const Text('REGISTRAR COORDINADOR', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                      child: Text(
+                        _tipoPersonal == 'coordinador' ? 'REGISTRAR COORDINADOR' : 'REGISTRAR PROFESOR', 
+                        style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)
+                      ),
                     ),
                   )
                 ],
