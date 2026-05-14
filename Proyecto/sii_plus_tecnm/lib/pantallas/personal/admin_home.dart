@@ -13,7 +13,16 @@ class _AdminHomeState extends State<AdminHome> {
   int _tabActiva = 0;
   bool _cargando = false;
 
-  // Variable para alternar entre perfiles
+  // --- VARIABLES PARA EL DIRECTORIO Y FILTROS ---
+  bool _cargandoDirectorio = true;
+  List<Map<String, dynamic>> _directorioCompleto = [];
+  List<Map<String, dynamic>> _directorioFiltrado = [];
+  int _totCoord = 0;
+  int _totProf = 0;
+  String _filtroTexto = '';
+  String _filtroRol = 'Todos'; // 'Todos', 'Coordinador', 'Profesor'
+
+  // Variable para alternar entre perfiles en el formulario
   String _tipoPersonal = 'coordinador';
 
   // --- Campos de formulario (Comunes y Coordinador) ---
@@ -54,46 +63,120 @@ class _AdminHomeState extends State<AdminHome> {
   final String _supabaseUrl = 'https://slrcguaqmlftohfmzzkt.supabase.co';
   final String _serviceRoleKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNscmNndWFxbWxmdG9oZm16emt0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzQ4Mzk2MSwiZXhwIjoyMDkzMDU5OTYxfQ.9rvVIhhiVv73Osiv5cdC5UGrydRhM5q5XsvusyuU32A';
 
-  // --- FUNCIÓN PARA EXTRAER LA LISTA DEL PERSONAL ---
-  Future<Map<String, dynamic>> _fetchResumen() async {
-    final responseCoord = await Supabase.instance.client.from('coordinadores').select('nombres, apellidos, telefono, correo_institucional');
-    final responseProf = await Supabase.instance.client.from('profesores').select('nombres, apellido_paterno, apellido_materno, telefono, correo_institucional');
-
-    List<Map<String, dynamic>> personal = [];
-    
-    // Agregamos coordinadores a la lista combinada
-    for(var c in responseCoord) {
-      personal.add({
-        'tipo': 'Coordinador',
-        'nombre': '${c['nombres'] ?? ''} ${c['apellidos'] ?? ''}'.trim(),
-        'telefono': c['telefono'] ?? 'Sin registro',
-        'correo': c['correo_institucional'] ?? 'Sin registro',
-      });
-    }
-
-    // Agregamos profesores a la lista combinada
-    for(var p in responseProf) {
-      personal.add({
-        'tipo': 'Profesor',
-        'nombre': '${p['nombres'] ?? ''} ${p['apellido_paterno'] ?? ''} ${p['apellido_materno'] ?? ''}'.trim(),
-        'telefono': p['telefono'] ?? 'Sin registro',
-        'correo': p['correo_institucional'] ?? 'Sin registro',
-      });
-    }
-
-    return {
-      'total_coordinadores': responseCoord.length,
-      'total_profesores': responseProf.length,
-      'lista': personal,
-    };
+  @override
+  void initState() {
+    super.initState();
+    _cargarDirectorio(); // Cargar la tabla al iniciar
   }
 
+  // --- FUNCIONES DEL DIRECTORIO (CARGA, FILTRADO Y ELIMINACIÓN) ---
+  Future<void> _cargarDirectorio() async {
+    setState(() => _cargandoDirectorio = true);
+    try {
+      final responseCoord = await Supabase.instance.client.from('coordinadores').select('numero_nomina, id_auth, nombres, apellidos, telefono, correo_institucional');
+      final responseProf = await Supabase.instance.client.from('profesores').select('numero_nomina, id_auth, nombres, apellido_paterno, apellido_materno, telefono, correo_institucional');
+
+      List<Map<String, dynamic>> personal = [];
+      
+      for(var c in responseCoord) {
+        personal.add({
+          'id_auth': c['id_auth'],
+          'nomina': c['numero_nomina'],
+          'tipo': 'Coordinador',
+          'nombre': '${c['nombres'] ?? ''} ${c['apellidos'] ?? ''}'.trim(),
+          'telefono': c['telefono'] ?? 'Sin registro',
+          'correo': c['correo_institucional'] ?? 'Sin registro',
+        });
+      }
+
+      for(var p in responseProf) {
+        personal.add({
+          'id_auth': p['id_auth'],
+          'nomina': p['numero_nomina'],
+          'tipo': 'Profesor',
+          'nombre': '${p['nombres'] ?? ''} ${p['apellido_paterno'] ?? ''} ${p['apellido_materno'] ?? ''}'.trim(),
+          'telefono': p['telefono'] ?? 'Sin registro',
+          'correo': p['correo_institucional'] ?? 'Sin registro',
+        });
+      }
+
+      setState(() {
+        _totCoord = responseCoord.length;
+        _totProf = responseProf.length;
+        _directorioCompleto = personal;
+      });
+      _aplicarFiltros();
+    } catch (e) {
+      _mensaje('Error al cargar directorio: $e', Colors.red);
+    } finally {
+      if (mounted) setState(() => _cargandoDirectorio = false);
+    }
+  }
+
+  void _aplicarFiltros() {
+    setState(() {
+      _directorioFiltrado = _directorioCompleto.where((p) {
+        final coincideRol = _filtroRol == 'Todos' || p['tipo'] == _filtroRol;
+        final coincideTexto = p['nombre'].toLowerCase().contains(_filtroTexto.toLowerCase()) || 
+                              p['correo'].toLowerCase().contains(_filtroTexto.toLowerCase()) ||
+                              p['nomina'].toLowerCase().contains(_filtroTexto.toLowerCase());
+        return coincideRol && coincideTexto;
+      }).toList();
+    });
+  }
+
+  Future<void> _confirmarEliminacion(Map<String, dynamic> usuario) async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(children: [Icon(Icons.warning, color: Colors.red), SizedBox(width: 10), Text('Confirmar Eliminación')]),
+        content: Text('¿Estás seguro de que deseas eliminar permanentemente a:\n\n${usuario['nombre']} (${usuario['tipo']})?\n\nSe borrará su registro y su acceso al sistema de forma irreversible.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700),
+            onPressed: () => Navigator.pop(context, true), 
+            child: const Text('Sí, Eliminar Definitivamente', style: TextStyle(color: Colors.white))
+          ),
+        ],
+      )
+    );
+
+    if (confirmar == true) {
+      _ejecutarEliminacion(usuario);
+    }
+  }
+
+  Future<void> _ejecutarEliminacion(Map<String, dynamic> usuario) async {
+    setState(() => _cargandoDirectorio = true);
+    final adminClient = SupabaseClient(_supabaseUrl, _serviceRoleKey);
+    
+    try {
+      // 1. Borrar de la tabla pública
+      final tabla = usuario['tipo'] == 'Coordinador' ? 'coordinadores' : 'profesores';
+      await Supabase.instance.client.from(tabla).delete().eq('numero_nomina', usuario['nomina']);
+      
+      // 2. Borrar del sistema de Auth
+      if (usuario['id_auth'] != null) {
+        await adminClient.auth.admin.deleteUser(usuario['id_auth']);
+      }
+      
+      _mensaje('${usuario['tipo']} eliminado exitosamente.', Colors.green);
+      await _cargarDirectorio(); // Recargar la tabla completa
+    } catch (e) {
+      _mensaje('Error al eliminar: $e', Colors.red);
+      setState(() => _cargandoDirectorio = false);
+    } finally {
+      adminClient.dispose();
+    }
+  }
+
+  // --- FUNCIÓN DE GUARDADO (ALTA) ---
   Future<void> _guardarPersonal() async {
     if (_nominaCtrl.text.isEmpty || _correoInstCtrl.text.isEmpty || _passCtrl.text.isEmpty) {
       _mensaje('Nómina, Correo Institucional y Contraseña son obligatorios.', Colors.red);
       return;
     }
-    
     if (_tipoPersonal == 'coordinador' && _deptoSeleccionado == null) {
       _mensaje('El Departamento que Coordina es obligatorio.', Colors.red);
       return;
@@ -104,11 +187,7 @@ class _AdminHomeState extends State<AdminHome> {
 
     try {
       final authRes = await adminClient.auth.admin.createUser(
-        AdminUserAttributes(
-          email: _correoInstCtrl.text.trim(),
-          password: _passCtrl.text.trim(),
-          emailConfirm: true,
-        ),
+        AdminUserAttributes(email: _correoInstCtrl.text.trim(), password: _passCtrl.text.trim(), emailConfirm: true),
       );
 
       final nuevoIdAuth = authRes.user!.id;
@@ -156,6 +235,7 @@ class _AdminHomeState extends State<AdminHome> {
       }
 
       _limpiarFormulario();
+      _cargarDirectorio(); // Actualizamos la lista silenciosamente
     } on AuthException catch (ae) {
       _mensaje('Error de Autenticación: ${ae.message}', Colors.red);
     } catch (e) {
@@ -188,7 +268,6 @@ class _AdminHomeState extends State<AdminHome> {
     final List<SiiNavTab> adminTabs = [
       const SiiNavTab(label: 'Inicio', icon: Icons.admin_panel_settings),
       const SiiNavTab(label: 'Alta de Personal', icon: Icons.person_add),
-      const SiiNavTab(label: 'Directorio', icon: Icons.badge),
     ];
 
     return Scaffold(
@@ -197,95 +276,122 @@ class _AdminHomeState extends State<AdminHome> {
         titulo: 'SII - ADMINISTRACIÓN CENTRAL',
         tabs: adminTabs,
         indexSeleccionado: _tabActiva,
-        onTabSelected: (idx) => setState(() => _tabActiva = idx),
+        onTabSelected: (idx) {
+          setState(() => _tabActiva = idx);
+          if (idx == 0 || idx == 2) _cargarDirectorio(); // Recarga los datos al volver al inicio
+        },
         onLogout: () async {
           await Supabase.instance.client.auth.signOut();
           if (mounted) Navigator.pop(context);
         },
       ),
-      // --- LÓGICA DE NAVEGACIÓN ---
       body: _cargando 
           ? const Center(child: CircularProgressIndicator()) 
           : _tabActiva == 1 
               ? _buildFormularioAlta() 
-              : _buildInicio(), // Se muestra en 'Inicio' y en 'Directorio'
+              : _buildInicio(),
     );
   }
 
-  // --- SECCIÓN: PANTALLA PRINCIPAL / DIRECTORIO ---
+  // --- PANTALLA PRINCIPAL CON FILTROS ---
   Widget _buildInicio() {
-    return FutureBuilder<Map<String, dynamic>>(
-      future: _fetchResumen(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          return Center(child: Text('Error al cargar datos: ${snapshot.error}'));
-        }
+    if (_cargandoDirectorio) return const Center(child: CircularProgressIndicator());
 
-        final data = snapshot.data!;
-        final int totCoord = data['total_coordinadores'];
-        final int totProf = data['total_profesores'];
-        final List<Map<String, dynamic>> lista = data['lista'];
-
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(40),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(40),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Panel de Administración Central', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
+          const SizedBox(height: 30),
+          
+          Row(
             children: [
-              const Text('Panel de Administración Central', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
-              const SizedBox(height: 30),
-              
-              // Tarjetas de Resumen
-              Row(
-                children: [
-                  _resumenCard('Coordinadores', totCoord.toString(), Colors.orange, Icons.manage_accounts),
-                  const SizedBox(width: 20),
-                  _resumenCard('Profesores', totProf.toString(), Colors.green, Icons.school),
-                  const SizedBox(width: 20),
-                  _resumenCard('Total de Personal', (totCoord + totProf).toString(), Colors.blue, Icons.groups),
-                ],
-              ),
-              const SizedBox(height: 40),
-
-              const Text('Directorio Institucional', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
-              const SizedBox(height: 20),
-              
-              // Tabla del Personal
-              Card(
-                elevation: 4,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(20),
-                  child: lista.isEmpty 
-                    ? const Center(child: Padding(padding: EdgeInsets.all(20.0), child: Text('No hay personal registrado aún.')))
-                    : DataTable(
-                        headingRowColor: MaterialStateProperty.all(Colors.grey.shade100),
-                        columns: const [
-                          DataColumn(label: Text('Rol', style: TextStyle(fontWeight: FontWeight.bold))),
-                          DataColumn(label: Text('Nombre Completo', style: TextStyle(fontWeight: FontWeight.bold))),
-                          DataColumn(label: Text('Teléfono', style: TextStyle(fontWeight: FontWeight.bold))),
-                          DataColumn(label: Text('Correo Institucional', style: TextStyle(fontWeight: FontWeight.bold))),
-                        ],
-                        rows: lista.map((p) => DataRow(cells: [
-                          DataCell(Chip(
-                            label: Text(p['tipo'], style: TextStyle(color: p['tipo'] == 'Coordinador' ? Colors.orange.shade800 : Colors.green.shade800, fontSize: 12, fontWeight: FontWeight.bold)),
-                            backgroundColor: p['tipo'] == 'Coordinador' ? Colors.orange.shade100 : Colors.green.shade100,
-                            side: BorderSide.none,
-                          )),
-                          DataCell(Text(p['nombre'])),
-                          DataCell(Text(p['telefono'])),
-                          DataCell(Text(p['correo'])),
-                        ])).toList(),
-                      ),
-                ),
-              ),
+              _resumenCard('Coordinadores', _totCoord.toString(), Colors.orange, Icons.manage_accounts),
+              const SizedBox(width: 20),
+              _resumenCard('Profesores', _totProf.toString(), Colors.green, Icons.school),
+              const SizedBox(width: 20),
+              _resumenCard('Total de Personal', (_totCoord + _totProf).toString(), Colors.blue, Icons.groups),
             ],
           ),
-        );
-      }
+          const SizedBox(height: 40),
+
+          // --- BARRA DE FILTROS ---
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade300)),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: TextField(
+                    decoration: const InputDecoration(labelText: 'Buscar por Nombre, Correo o Nómina...', prefixIcon: Icon(Icons.search), border: OutlineInputBorder()),
+                    onChanged: (val) {
+                      _filtroTexto = val;
+                      _aplicarFiltros();
+                    },
+                  ),
+                ),
+                const SizedBox(width: 20),
+                Expanded(
+                  flex: 1,
+                  child: DropdownButtonFormField<String>(
+                    value: _filtroRol,
+                    decoration: const InputDecoration(labelText: 'Filtrar por Rol', border: OutlineInputBorder()),
+                    items: const [
+                      DropdownMenuItem(value: 'Todos', child: Text('Todos')),
+                      DropdownMenuItem(value: 'Coordinador', child: Text('Coordinadores')),
+                      DropdownMenuItem(value: 'Profesor', child: Text('Profesores')),
+                    ],
+                    onChanged: (val) {
+                      setState(() => _filtroRol = val!);
+                      _aplicarFiltros();
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          
+          // --- TABLA DE DATOS ---
+          Card(
+            elevation: 4,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              child: _directorioFiltrado.isEmpty 
+                ? const Center(child: Padding(padding: EdgeInsets.all(40.0), child: Text('No se encontraron resultados.')))
+                : DataTable(
+                    headingRowColor: MaterialStateProperty.all(Colors.grey.shade100),
+                    columns: const [
+                      DataColumn(label: Text('Rol', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataColumn(label: Text('Nómina', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataColumn(label: Text('Nombre Completo', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataColumn(label: Text('Correo Institucional', style: TextStyle(fontWeight: FontWeight.bold))),
+                      DataColumn(label: Text('Acciones', style: TextStyle(fontWeight: FontWeight.bold))),
+                    ],
+                    rows: _directorioFiltrado.map((p) => DataRow(cells: [
+                      DataCell(Chip(
+                        label: Text(p['tipo'], style: TextStyle(color: p['tipo'] == 'Coordinador' ? Colors.orange.shade800 : Colors.green.shade800, fontSize: 12, fontWeight: FontWeight.bold)),
+                        backgroundColor: p['tipo'] == 'Coordinador' ? Colors.orange.shade100 : Colors.green.shade100,
+                        side: BorderSide.none,
+                      )),
+                      DataCell(Text(p['nomina'], style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey))),
+                      DataCell(Text(p['nombre'])),
+                      DataCell(Text(p['correo'])),
+                      DataCell(IconButton(
+                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                        tooltip: 'Eliminar Usuario',
+                        onPressed: () => _confirmarEliminacion(p),
+                      )),
+                    ])).toList(),
+                  ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
