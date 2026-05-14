@@ -33,7 +33,7 @@ class _AdminHomeState extends State<AdminHome> {
     'Ingeniería Informática', 'Licenciatura en Administración', 'Licenciatura en Biología', 'Ingeniería Química'
   ];
 
-  final _domicilioCtrl = TextEditingController(); // domicilio_completo (coordinador)
+  final _domicilioCtrl = TextEditingController();
   final _telefonoCtrl = TextEditingController();
   final _correoPersonalCtrl = TextEditingController();
   final _correoInstCtrl = TextEditingController();
@@ -54,8 +54,41 @@ class _AdminHomeState extends State<AdminHome> {
   final String _supabaseUrl = 'https://slrcguaqmlftohfmzzkt.supabase.co';
   final String _serviceRoleKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNscmNndWFxbWxmdG9oZm16emt0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzQ4Mzk2MSwiZXhwIjoyMDkzMDU5OTYxfQ.9rvVIhhiVv73Osiv5cdC5UGrydRhM5q5XsvusyuU32A';
 
+  // --- FUNCIÓN PARA EXTRAER LA LISTA DEL PERSONAL ---
+  Future<Map<String, dynamic>> _fetchResumen() async {
+    final responseCoord = await Supabase.instance.client.from('coordinadores').select('nombres, apellidos, telefono, correo_institucional');
+    final responseProf = await Supabase.instance.client.from('profesores').select('nombres, apellido_paterno, apellido_materno, telefono, correo_institucional');
+
+    List<Map<String, dynamic>> personal = [];
+    
+    // Agregamos coordinadores a la lista combinada
+    for(var c in responseCoord) {
+      personal.add({
+        'tipo': 'Coordinador',
+        'nombre': '${c['nombres'] ?? ''} ${c['apellidos'] ?? ''}'.trim(),
+        'telefono': c['telefono'] ?? 'Sin registro',
+        'correo': c['correo_institucional'] ?? 'Sin registro',
+      });
+    }
+
+    // Agregamos profesores a la lista combinada
+    for(var p in responseProf) {
+      personal.add({
+        'tipo': 'Profesor',
+        'nombre': '${p['nombres'] ?? ''} ${p['apellido_paterno'] ?? ''} ${p['apellido_materno'] ?? ''}'.trim(),
+        'telefono': p['telefono'] ?? 'Sin registro',
+        'correo': p['correo_institucional'] ?? 'Sin registro',
+      });
+    }
+
+    return {
+      'total_coordinadores': responseCoord.length,
+      'total_profesores': responseProf.length,
+      'lista': personal,
+    };
+  }
+
   Future<void> _guardarPersonal() async {
-    // Validación ajustada: el departamento solo es obligatorio para coordinadores
     if (_nominaCtrl.text.isEmpty || _correoInstCtrl.text.isEmpty || _passCtrl.text.isEmpty) {
       _mensaje('Nómina, Correo Institucional y Contraseña son obligatorios.', Colors.red);
       return;
@@ -81,7 +114,6 @@ class _AdminHomeState extends State<AdminHome> {
       final nuevoIdAuth = authRes.user!.id;
 
       if (_tipoPersonal == 'coordinador') {
-        // Insertamos el nuevo coordinador
         await Supabase.instance.client.from('coordinadores').insert({
           'numero_nomina': _nominaCtrl.text.trim(),
           'nombres': _nombresCtrl.text.trim(),
@@ -99,7 +131,6 @@ class _AdminHomeState extends State<AdminHome> {
         });
         _mensaje('Coordinador creado y vinculado exitosamente.', Colors.green);
       } else {
-        // Insertamos el nuevo profesor omitiendo los datos laborales
         await Supabase.instance.client.from('profesores').insert({
           'numero_nomina': _nominaCtrl.text.trim(),
           'nombres': _nombresCtrl.text.trim(),
@@ -172,12 +203,93 @@ class _AdminHomeState extends State<AdminHome> {
           if (mounted) Navigator.pop(context);
         },
       ),
+      // --- LÓGICA DE NAVEGACIÓN ---
       body: _cargando 
           ? const Center(child: CircularProgressIndicator()) 
-          : _tabActiva == 1 ? _buildFormularioAlta() : const Center(child: Text('Sección Administrativa')),
+          : _tabActiva == 1 
+              ? _buildFormularioAlta() 
+              : _buildInicio(), // Se muestra en 'Inicio' y en 'Directorio'
     );
   }
 
+  // --- SECCIÓN: PANTALLA PRINCIPAL / DIRECTORIO ---
+  Widget _buildInicio() {
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _fetchResumen(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Error al cargar datos: ${snapshot.error}'));
+        }
+
+        final data = snapshot.data!;
+        final int totCoord = data['total_coordinadores'];
+        final int totProf = data['total_profesores'];
+        final List<Map<String, dynamic>> lista = data['lista'];
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(40),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Panel de Administración Central', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
+              const SizedBox(height: 30),
+              
+              // Tarjetas de Resumen
+              Row(
+                children: [
+                  _resumenCard('Coordinadores', totCoord.toString(), Colors.orange, Icons.manage_accounts),
+                  const SizedBox(width: 20),
+                  _resumenCard('Profesores', totProf.toString(), Colors.green, Icons.school),
+                  const SizedBox(width: 20),
+                  _resumenCard('Total de Personal', (totCoord + totProf).toString(), Colors.blue, Icons.groups),
+                ],
+              ),
+              const SizedBox(height: 40),
+
+              const Text('Directorio Institucional', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
+              const SizedBox(height: 20),
+              
+              // Tabla del Personal
+              Card(
+                elevation: 4,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  child: lista.isEmpty 
+                    ? const Center(child: Padding(padding: EdgeInsets.all(20.0), child: Text('No hay personal registrado aún.')))
+                    : DataTable(
+                        headingRowColor: MaterialStateProperty.all(Colors.grey.shade100),
+                        columns: const [
+                          DataColumn(label: Text('Rol', style: TextStyle(fontWeight: FontWeight.bold))),
+                          DataColumn(label: Text('Nombre Completo', style: TextStyle(fontWeight: FontWeight.bold))),
+                          DataColumn(label: Text('Teléfono', style: TextStyle(fontWeight: FontWeight.bold))),
+                          DataColumn(label: Text('Correo Institucional', style: TextStyle(fontWeight: FontWeight.bold))),
+                        ],
+                        rows: lista.map((p) => DataRow(cells: [
+                          DataCell(Chip(
+                            label: Text(p['tipo'], style: TextStyle(color: p['tipo'] == 'Coordinador' ? Colors.orange.shade800 : Colors.green.shade800, fontSize: 12, fontWeight: FontWeight.bold)),
+                            backgroundColor: p['tipo'] == 'Coordinador' ? Colors.orange.shade100 : Colors.green.shade100,
+                            side: BorderSide.none,
+                          )),
+                          DataCell(Text(p['nombre'])),
+                          DataCell(Text(p['telefono'])),
+                          DataCell(Text(p['correo'])),
+                        ])).toList(),
+                      ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+    );
+  }
+
+  // --- SECCIÓN: ALTA DE PERSONAL ---
   Widget _buildFormularioAlta() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(40),
@@ -195,7 +307,6 @@ class _AdminHomeState extends State<AdminHome> {
                   const Text('Ficha de Registro de Personal', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
                   const Divider(height: 30),
 
-                  // --- SECCIÓN: TIPO DE PERFIL ---
                   Row(
                     children: [
                       const Text('Tipo de personal a registrar: ', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
@@ -331,7 +442,6 @@ class _AdminHomeState extends State<AdminHome> {
                     ],
                   ),
 
-                  // La sección Laboral ahora solo es visible si es coordinador
                   if (_tipoPersonal == 'coordinador') ...[
                     const SizedBox(height: 30),
                     _seccionTitulo('4. Datos Laborales'),
@@ -371,6 +481,30 @@ class _AdminHomeState extends State<AdminHome> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  // --- COMPONENTES VISUALES ---
+  Widget _resumenCard(String tit, String val, Color col, IconData ic) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(30),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)],
+          border: Border(left: BorderSide(color: col, width: 6)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(ic, color: col, size: 30),
+            const SizedBox(height: 15),
+            Text(tit, style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.w600)),
+            Text(val, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
+          ],
         ),
       ),
     );
