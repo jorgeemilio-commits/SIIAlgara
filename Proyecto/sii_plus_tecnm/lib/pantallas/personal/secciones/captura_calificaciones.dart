@@ -18,10 +18,17 @@ class _CapturaCalificacionesState extends State<CapturaCalificaciones> {
   
   // Mapa de controladores estables
   final Map<String, TextEditingController> _controllers = {};
+  
+  // Variable dinámica para saber cuántos parciales tiene esta materia en específico
+  int _cantidadParciales = 3;
 
   @override
   void initState() {
     super.initState();
+    // Leemos la cantidad de parciales desde el JOIN de asignaturas (si es nulo, usamos 3 por defecto)
+    if (widget.grupo['asignaturas'] != null && widget.grupo['asignaturas']['cantidad_parciales'] != null) {
+      _cantidadParciales = widget.grupo['asignaturas']['cantidad_parciales'] as int;
+    }
     _cargarListaAlumnos();
   }
 
@@ -47,12 +54,12 @@ class _CapturaCalificacionesState extends State<CapturaCalificaciones> {
       _listaAlumnos = List<Map<String, dynamic>>.from(response.map((e) => Map<String, dynamic>.from(e)));
       _originalAlumnos = List<Map<String, dynamic>>.from(response.map((e) => Map<String, dynamic>.from(e)));
 
-      // Actualizamos el texto SIN destruir el controlador para evitar que Flutter se congele
+      // Bucle DINÁMICO: Creamos/actualizamos solo los controladores necesarios (de 1 hasta _cantidadParciales)
       for (var alumno in _listaAlumnos) {
         final id = alumno['id_calificacion'].toString();
-        _actualizarControlador('${id}_p1', alumno['calificacion_parcial_1']);
-        _actualizarControlador('${id}_p2', alumno['calificacion_parcial_2']);
-        _actualizarControlador('${id}_p3', alumno['calificacion_parcial_3']);
+        for (int i = 1; i <= _cantidadParciales; i++) {
+          _actualizarControlador('${id}_p$i', alumno['calificacion_parcial_$i']);
+        }
       }
 
       if (mounted) {
@@ -84,9 +91,6 @@ class _CapturaCalificacionesState extends State<CapturaCalificaciones> {
     try {
       for (var orig in _originalAlumnos) {
         final id = orig['id_calificacion'].toString();
-        final p1 = _controllers['${id}_p1']!.text.trim();
-        final p2 = _controllers['${id}_p2']!.text.trim();
-        final p3 = _controllers['${id}_p3']!.text.trim();
 
         bool tieneCorreccionAprobada = false;
         if (orig['solicitudes_correccion'] != null) {
@@ -94,17 +98,15 @@ class _CapturaCalificacionesState extends State<CapturaCalificaciones> {
           tieneCorreccionAprobada = solicitudes.any((s) => s['estatus'] == 'Aprobada');
         }
 
-        // Armamos un mapa solo con los datos que son legales actualizar
+        // Armamos el mapa de actualización de forma DINÁMICA
         final Map<String, dynamic> updateData = {};
         
-        if ((orig['calificacion_parcial_1'] == null || tieneCorreccionAprobada) && p1.isNotEmpty) {
-          updateData['calificacion_parcial_1'] = double.tryParse(p1);
-        }
-        if ((orig['calificacion_parcial_2'] == null || tieneCorreccionAprobada) && p2.isNotEmpty) {
-          updateData['calificacion_parcial_2'] = double.tryParse(p2);
-        }
-        if ((orig['calificacion_parcial_3'] == null || tieneCorreccionAprobada) && p3.isNotEmpty) {
-          updateData['calificacion_parcial_3'] = double.tryParse(p3);
+        for (int i = 1; i <= _cantidadParciales; i++) {
+          final pText = _controllers['${id}_p$i']!.text.trim();
+          
+          if ((orig['calificacion_parcial_$i'] == null || tieneCorreccionAprobada) && pText.isNotEmpty) {
+            updateData['calificacion_parcial_$i'] = double.tryParse(pText);
+          }
         }
 
         if (updateData.isNotEmpty) {
@@ -125,7 +127,6 @@ class _CapturaCalificacionesState extends State<CapturaCalificaciones> {
         ));
       }
       
-      // Recarga silenciosa que aplica el candado visual sin desaparecer la pantalla
       await _cargarListaAlumnos(silencioso: true);
       
     } catch (e) {
@@ -236,64 +237,75 @@ class _CapturaCalificacionesState extends State<CapturaCalificaciones> {
                     padding: const EdgeInsets.all(20),
                     child: _listaAlumnos.isEmpty
                       ? const Center(child: Padding(padding: EdgeInsets.all(40), child: Text('No hay alumnos inscritos.')))
-                      : DataTable(
-                          headingRowColor: MaterialStateProperty.all(Colors.grey.shade100),
-                          dataRowMaxHeight: 70,
-                          columns: const [
-                            DataColumn(label: Text('Matrícula', style: TextStyle(fontWeight: FontWeight.bold))),
-                            DataColumn(label: Text('Nombre del Alumno', style: TextStyle(fontWeight: FontWeight.bold))),
-                            DataColumn(label: Text('Parcial 1', style: TextStyle(fontWeight: FontWeight.bold))),
-                            DataColumn(label: Text('Parcial 2', style: TextStyle(fontWeight: FontWeight.bold))),
-                            DataColumn(label: Text('Parcial 3', style: TextStyle(fontWeight: FontWeight.bold))),
-                            DataColumn(label: Text('Promedio Final', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF003366)))),
-                            DataColumn(label: Text('Ajustes', style: TextStyle(fontWeight: FontWeight.bold))),
-                          ],
-                          rows: List<DataRow>.generate(_listaAlumnos.length, (index) {
-                            final alumno = _listaAlumnos[index];
-                            final orig = _originalAlumnos[index];
-                            
-                            final estudiante = alumno['estudiantes'] ?? {};
-                            final nombreCompleto = '${estudiante['apellido_paterno'] ?? ''} ${estudiante['apellido_materno'] ?? ''} ${estudiante['nombres'] ?? 'Sin datos'}'.trim();
-                            final finalCalc = alumno['calificacion_final']?.toString() ?? '--';
-                            final id = alumno['id_calificacion'].toString();
+                      : SingleChildScrollView(
+                          scrollDirection: Axis.horizontal, // Permite scroll horizontal si hay muchos parciales
+                          child: DataTable(
+                            headingRowColor: MaterialStateProperty.all(Colors.grey.shade100),
+                            dataRowMaxHeight: 70,
+                            columns: [
+                              const DataColumn(label: Text('Matrícula', style: TextStyle(fontWeight: FontWeight.bold))),
+                              const DataColumn(label: Text('Nombre del Alumno', style: TextStyle(fontWeight: FontWeight.bold))),
+                              
+                              // COLUMNAS GENERADAS DINÁMICAMENTE BASADAS EN _cantidadParciales
+                              for (int i = 1; i <= _cantidadParciales; i++)
+                                DataColumn(label: Text('Parcial $i', style: const TextStyle(fontWeight: FontWeight.bold))),
+                              
+                              const DataColumn(label: Text('Promedio Final', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF003366)))),
+                              const DataColumn(label: Text('Ajustes', style: TextStyle(fontWeight: FontWeight.bold))),
+                            ],
+                            rows: List<DataRow>.generate(_listaAlumnos.length, (index) {
+                              final alumno = _listaAlumnos[index];
+                              final orig = _originalAlumnos[index];
+                              
+                              final estudiante = alumno['estudiantes'] ?? {};
+                              final nombreCompleto = '${estudiante['apellido_paterno'] ?? ''} ${estudiante['apellido_materno'] ?? ''} ${estudiante['nombres'] ?? 'Sin datos'}'.trim();
+                              final finalCalc = alumno['calificacion_final']?.toString() ?? '--';
+                              final id = alumno['id_calificacion'].toString();
 
-                            bool tieneCorreccionAprobada = false;
-                            bool tieneCorreccionPendiente = false;
-                            if (orig['solicitudes_correccion'] != null) {
-                              final solicitudes = orig['solicitudes_correccion'] as List;
-                              tieneCorreccionAprobada = solicitudes.any((s) => s['estatus'] == 'Aprobada');
-                              tieneCorreccionPendiente = solicitudes.any((s) => s['estatus'] == 'Pendiente');
-                            }
+                              bool tieneCorreccionAprobada = false;
+                              bool tieneCorreccionPendiente = false;
+                              if (orig['solicitudes_correccion'] != null) {
+                                final solicitudes = orig['solicitudes_correccion'] as List;
+                                tieneCorreccionAprobada = solicitudes.any((s) => s['estatus'] == 'Aprobada');
+                                tieneCorreccionPendiente = solicitudes.any((s) => s['estatus'] == 'Pendiente');
+                              }
 
-                            return DataRow(cells: [
-                              DataCell(Text(alumno['matricula_estudiante'] ?? 'N/A', style: const TextStyle(fontWeight: FontWeight.w600))),
-                              DataCell(Text(nombreCompleto)),
-                              
-                              DataCell(_casillaCalificacion(_controllers['${id}_p1']!, orig['calificacion_parcial_1'], tieneCorreccionAprobada)),
-                              DataCell(_casillaCalificacion(_controllers['${id}_p2']!, orig['calificacion_parcial_2'], tieneCorreccionAprobada)),
-                              DataCell(_casillaCalificacion(_controllers['${id}_p3']!, orig['calificacion_parcial_3'], tieneCorreccionAprobada)),
-                              
-                              DataCell(
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                  decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
-                                  child: Text(finalCalc, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: const Color(0xFF003366))),
-                                )
-                              ),
-                              
-                              DataCell(
-                                tieneCorreccionPendiente
-                                ? const Chip(label: Text('Pendiente', style: TextStyle(color: Colors.orange, fontSize: 11)), backgroundColor: Color(0xFFFFF3E0), side: BorderSide.none)
-                                : (orig['calificacion_parcial_1'] != null || orig['calificacion_parcial_2'] != null || orig['calificacion_parcial_3'] != null) && !tieneCorreccionAprobada
-                                  ? TextButton.icon(
-                                      icon: const Icon(Icons.lock_open, size: 16, color: Colors.orange),
-                                      label: const Text('Desbloquear', style: TextStyle(fontSize: 12, color: Colors.orange)),
-                                      onPressed: () => _abrirDialogoSolicitud(orig['id_calificacion'], nombreCompleto),
-                                    )
-                                  : const Chip(label: Text('Abierto', style: TextStyle(color: Colors.green, fontSize: 11)), backgroundColor: Color(0xFFE8F5E9), side: BorderSide.none)
-                              ),
-                            ]);
-                          }),
+                              // Verificamos si AL MENOS UN parcial está lleno para mostrar el botón de desbloqueo
+                              bool algunParcialLleno = false;
+                              for (int i = 1; i <= _cantidadParciales; i++) {
+                                if (orig['calificacion_parcial_$i'] != null) algunParcialLleno = true;
+                              }
+
+                              return DataRow(cells: [
+                                DataCell(Text(alumno['matricula_estudiante'] ?? 'N/A', style: const TextStyle(fontWeight: FontWeight.w600))),
+                                DataCell(Text(nombreCompleto)),
+                                
+                                // CELDAS DE CALIFICACIÓN GENERADAS DINÁMICAMENTE
+                                for (int i = 1; i <= _cantidadParciales; i++)
+                                  DataCell(_casillaCalificacion(_controllers['${id}_p$i']!, orig['calificacion_parcial_$i'], tieneCorreccionAprobada)),
+                                
+                                DataCell(
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
+                                    child: Text(finalCalc, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: const Color(0xFF003366))),
+                                  )
+                                ),
+                                
+                                DataCell(
+                                  tieneCorreccionPendiente
+                                  ? const Chip(label: Text('Pendiente', style: TextStyle(color: Colors.orange, fontSize: 11)), backgroundColor: Color(0xFFFFF3E0), side: BorderSide.none)
+                                  : algunParcialLleno && !tieneCorreccionAprobada
+                                    ? TextButton.icon(
+                                        icon: const Icon(Icons.lock_open, size: 16, color: Colors.orange),
+                                        label: const Text('Desbloquear', style: TextStyle(fontSize: 12, color: Colors.orange)),
+                                        onPressed: () => _abrirDialogoSolicitud(orig['id_calificacion'], nombreCompleto),
+                                      )
+                                    : const Chip(label: Text('Abierto', style: TextStyle(color: Colors.green, fontSize: 11)), backgroundColor: Color(0xFFE8F5E9), side: BorderSide.none)
+                                ),
+                              ]);
+                            }),
+                          ),
                         ),
                   ),
                 ),
@@ -308,7 +320,7 @@ class _CapturaCalificacionesState extends State<CapturaCalificaciones> {
     final bool esSoloLectura = yaCalificado && !tieneCorreccionAprobada;
 
     return SizedBox(
-      width: 80,
+      width: 75,
       child: TextFormField(
         controller: controller,
         enabled: !esSoloLectura, 
