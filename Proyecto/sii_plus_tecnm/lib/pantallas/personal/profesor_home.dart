@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../widgets/sii_navbar.dart';
+import 'secciones/mis_grupos_profesor.dart'; 
 
 class ProfesorHome extends StatefulWidget {
   const ProfesorHome({super.key});
@@ -17,8 +18,6 @@ class _ProfesorHomeState extends State<ProfesorHome> {
   String _nomina = '';
   String _departamento = '';
   List<dynamic> _misGrupos = [];
-  
-  // Variable para ver errores en pantalla
   String _mensajeError = '';
 
   @override
@@ -40,7 +39,6 @@ class _ProfesorHomeState extends State<ProfesorHome> {
         return;
       }
 
-      // 1. Cargar perfil del profesor (Usamos maybeSingle para que no rompa la app)
       final dataProf = await Supabase.instance.client
           .from('profesores')
           .select('numero_nomina, nombres, apellido_paterno, apellido_materno, departamento_academico')
@@ -49,7 +47,7 @@ class _ProfesorHomeState extends State<ProfesorHome> {
 
       if (dataProf == null) {
         setState(() { 
-          _mensajeError = 'ERROR: No se encontró un perfil de profesor en la base de datos vinculado a tu ID de sesión (${user.id}). Revisa la tabla "profesores".'; 
+          _mensajeError = 'ERROR: No se encontró un perfil de profesor en la base de datos vinculado a tu ID de sesión (${user.id}).'; 
           _cargando = false; 
         });
         return;
@@ -59,7 +57,6 @@ class _ProfesorHomeState extends State<ProfesorHome> {
       _nombreCompleto = '${dataProf['nombres']} ${dataProf['apellido_paterno']} ${dataProf['apellido_materno'] ?? ''}'.trim();
       _departamento = dataProf['departamento_academico'] ?? 'Sin asignar';
 
-      // 2. Cargar los grupos
       try {
         final dataGrupos = await Supabase.instance.client
             .from('grupos')
@@ -71,17 +68,11 @@ class _ProfesorHomeState extends State<ProfesorHome> {
           _cargando = false;
         });
       } catch (errGrupos) {
-        setState(() { 
-          _mensajeError = 'ERROR AL CARGAR GRUPOS: $errGrupos'; 
-          _cargando = false; 
-        });
+        setState(() { _mensajeError = 'ERROR AL CARGAR GRUPOS: $errGrupos'; _cargando = false; });
       }
 
     } catch (e) {
-      setState(() { 
-        _mensajeError = 'ERROR CRÍTICO GENERAL: $e'; 
-        _cargando = false; 
-      });
+      setState(() { _mensajeError = 'ERROR CRÍTICO GENERAL: $e'; _cargando = false; });
     }
   }
 
@@ -115,14 +106,13 @@ class _ProfesorHomeState extends State<ProfesorHome> {
                 index: _tabActiva,
                 children: [
                   _buildDashboard(),
-                  _buildMisGrupos(),
+                  MisGruposProfesor(misGrupos: _misGrupos), // <-- INVOCAMOS EL WIDGET DESDE EL OTRO ARCHIVO
                   _buildPlanAcademicoPlaceholder(),
                 ],
               ),
     );
   }
 
-  // --- PANTALLA DE ERROR VISIBLE ---
   Widget _buildPantallaError() {
     return Center(
       child: Container(
@@ -145,14 +135,13 @@ class _ProfesorHomeState extends State<ProfesorHome> {
     );
   }
 
-  // --- 1. SECCIÓN: DASHBOARD (INICIO) ---
   Widget _buildDashboard() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(40),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Bienvenido(a), $_nombreCompleto', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
+          Text('Bienvenido(a), $_nombreCompleto', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: const Color(0xFF003366))),
           const SizedBox(height: 8),
           Text('Nómina: $_nomina | Departamento: $_departamento', style: const TextStyle(fontSize: 16, color: Colors.blueGrey)),
           const SizedBox(height: 40),
@@ -173,88 +162,6 @@ class _ProfesorHomeState extends State<ProfesorHome> {
     );
   }
 
-  // --- 2. SECCIÓN: MIS GRUPOS ---
-  Widget _buildMisGrupos() {
-    return Padding(
-      padding: const EdgeInsets.all(40.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Carga Académica Actual', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
-          const SizedBox(height: 8),
-          const Text('Selecciona un grupo para gestionar la lista de asistencia y capturar calificaciones.', style: TextStyle(color: Colors.grey)),
-          const SizedBox(height: 30),
-          
-          Expanded(
-            child: _misGrupos.isEmpty
-              ? const Center(child: Text('No tienes grupos asignados en este periodo escolar.', style: TextStyle(fontSize: 18, color: Colors.grey)))
-              : GridView.builder(
-                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 400,
-                    mainAxisExtent: 220,
-                    crossAxisSpacing: 20,
-                    mainAxisSpacing: 20,
-                  ),
-                  itemCount: _misGrupos.length,
-                  itemBuilder: (context, index) {
-                    final grupo = _misGrupos[index];
-                    final asignatura = grupo['asignaturas'] != null ? grupo['asignaturas']['nombre_materia'] : 'Materia Desconocida';
-                    
-                    return Card(
-                      elevation: 4,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(15),
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Abriendo grupo: ${grupo['nombre_grupo']}')));
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.all(20.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Chip(
-                                    label: Text(grupo['clave_materia'], style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-                                    backgroundColor: const Color(0xFF003366),
-                                  ),
-                                  Text('Grupo: ${grupo['nombre_grupo']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                ],
-                              ),
-                              const Spacer(),
-                              Text(asignatura, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis),
-                              const SizedBox(height: 10),
-                              Row(
-                                children: [
-                                  const Icon(Icons.access_time, size: 16, color: Colors.grey),
-                                  const SizedBox(width: 5),
-                                  Expanded(child: Text(grupo['horario'] ?? 'Sin horario', style: const TextStyle(color: Colors.grey), overflow: TextOverflow.ellipsis)),
-                                ],
-                              ),
-                              const SizedBox(height: 5),
-                              Row(
-                                children: [
-                                  const Icon(Icons.meeting_room, size: 16, color: Colors.grey),
-                                  const SizedBox(width: 5),
-                                  Text(grupo['aula'] ?? 'Sin aula', style: const TextStyle(color: Colors.grey)),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-          )
-        ],
-      ),
-    );
-  }
-
-  // --- 3. SECCIÓN: PLAN ACADÉMICO (PLACEHOLDER) ---
   Widget _buildPlanAcademicoPlaceholder() {
     return const Center(
       child: Column(
@@ -285,7 +192,7 @@ class _ProfesorHomeState extends State<ProfesorHome> {
             Icon(ic, color: col, size: 30),
             const SizedBox(height: 15),
             Text(tit, style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.w600)),
-            Text(val, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
+            Text(val, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: const Color(0xFF003366))),
           ],
         ),
       ),
