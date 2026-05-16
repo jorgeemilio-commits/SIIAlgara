@@ -106,7 +106,7 @@ class _ProfesorHomeState extends State<ProfesorHome> {
                 index: _tabActiva,
                 children: [
                   _buildDashboard(),
-                  MisGruposProfesor(misGrupos: _misGrupos), // <-- INVOCAMOS EL WIDGET DESDE EL OTRO ARCHIVO
+                  MisGruposProfesor(misGrupos: _misGrupos), 
                   _buildPlanAcademicoPlaceholder(),
                 ],
               ),

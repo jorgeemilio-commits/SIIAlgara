@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'captura_calificaciones.dart';
 
 class MisGruposProfesor extends StatefulWidget {
   final List<dynamic> misGrupos; // Recibe la lista de grupos desde la pantalla principal
@@ -43,8 +44,13 @@ class _MisGruposProfesorState extends State<MisGruposProfesor> {
                       child: InkWell(
                         borderRadius: BorderRadius.circular(15),
                         onTap: () {
-                          // AQUÍ PROGRAMAREMOS LA PANTALLA DE CALIFICACIONES EN EL SIGUIENTE PASO
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Abriendo grupo: ${grupo['nombre_grupo']}')));
+                          // Navegación implementada hacia la pantalla de captura pasando el grupo seleccionado
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => CapturaCalificaciones(grupo: grupo),
+                            ),
+                          );
                         },
                         child: Padding(
                           padding: const EdgeInsets.all(20.0),
