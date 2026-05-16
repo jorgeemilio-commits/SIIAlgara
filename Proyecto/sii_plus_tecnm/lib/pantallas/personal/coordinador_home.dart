@@ -17,7 +17,7 @@ class _CoordinadorHomeState extends State<CoordinadorHome> {
   // Datos para el resumen y las tablas
   int _total = 0, _pendientes = 0, _aceptados = 0;
   List<dynamic> _aspirantesPendientes = [];
-  List<dynamic> _estudiantesInscritos = []; // Nueva lista para la pestaña 3
+  List<dynamic> _estudiantesInscritos = []; 
 
   @override
   void initState() {
