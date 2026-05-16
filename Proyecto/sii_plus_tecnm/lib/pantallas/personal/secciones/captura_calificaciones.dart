@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../widgets/sii_navbar.dart'; // Asegúrate de que la ruta a tu widget Navbar sea correcta
 
 class CapturaCalificaciones extends StatefulWidget {
   final Map<String, dynamic> grupo;
@@ -16,16 +17,12 @@ class _CapturaCalificacionesState extends State<CapturaCalificaciones> {
   List<Map<String, dynamic>> _listaAlumnos = [];
   List<Map<String, dynamic>> _originalAlumnos = []; 
   
-  // Mapa de controladores estables
   final Map<String, TextEditingController> _controllers = {};
-  
-  // Variable dinámica para saber cuántos parciales tiene esta materia en específico
   int _cantidadParciales = 3;
 
   @override
   void initState() {
     super.initState();
-    // Leemos la cantidad de parciales desde el JOIN de asignaturas (si es nulo, usamos 3 por defecto)
     if (widget.grupo['asignaturas'] != null && widget.grupo['asignaturas']['cantidad_parciales'] != null) {
       _cantidadParciales = widget.grupo['asignaturas']['cantidad_parciales'] as int;
     }
@@ -54,7 +51,6 @@ class _CapturaCalificacionesState extends State<CapturaCalificaciones> {
       _listaAlumnos = List<Map<String, dynamic>>.from(response.map((e) => Map<String, dynamic>.from(e)));
       _originalAlumnos = List<Map<String, dynamic>>.from(response.map((e) => Map<String, dynamic>.from(e)));
 
-      // Bucle DINÁMICO: Creamos/actualizamos solo los controladores necesarios (de 1 hasta _cantidadParciales)
       for (var alumno in _listaAlumnos) {
         final id = alumno['id_calificacion'].toString();
         for (int i = 1; i <= _cantidadParciales; i++) {
@@ -98,12 +94,9 @@ class _CapturaCalificacionesState extends State<CapturaCalificaciones> {
           tieneCorreccionAprobada = solicitudes.any((s) => s['estatus'] == 'Aprobada');
         }
 
-        // Armamos el mapa de actualización de forma DINÁMICA
         final Map<String, dynamic> updateData = {};
-        
         for (int i = 1; i <= _cantidadParciales; i++) {
           final pText = _controllers['${id}_p$i']!.text.trim();
-          
           if ((orig['calificacion_parcial_$i'] == null || tieneCorreccionAprobada) && pText.isNotEmpty) {
             updateData['calificacion_parcial_$i'] = double.tryParse(pText);
           }
@@ -115,20 +108,17 @@ class _CapturaCalificacionesState extends State<CapturaCalificaciones> {
               .update(updateData)
               .eq('id_calificacion', orig['id_calificacion'])
               .select();
-          
           if (actualizacion.isNotEmpty) exitosos++;
         }
       }
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(exitosos > 0 ? 'Se guardaron $exitosos alumnos y sus campos han sido bloqueados.' : 'No se detectaron calificaciones nuevas o editables.'), 
+          content: Text(exitosos > 0 ? 'Se guardaron $exitosos alumnos de forma exitosa.' : 'No hay cambios nuevos guardables.'), 
           backgroundColor: exitosos > 0 ? Colors.green : Colors.orange
         ));
       }
-      
       await _cargarListaAlumnos(silencioso: true);
-      
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al guardar: $e'), backgroundColor: Colors.red));
     } finally {
@@ -141,19 +131,19 @@ class _CapturaCalificacionesState extends State<CapturaCalificaciones> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Row(children: [const Icon(Icons.lock_open, color: Colors.orange), const SizedBox(width: 10), const Text('Solicitar Desbloqueo')]),
+        title: const Row(children: [Icon(Icons.lock_open, color: Colors.orange), SizedBox(width: 10), Text('Solicitar Desbloqueo')]),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Alumno: $alumnoNombre', style: const TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 15),
-            const Text('Especifique el motivo para que Coordinación autorice la corrección de calificación:'),
+            const Text('Especifique el motivo detallado para solicitar la corrección al Coordinador:'),
             const SizedBox(height: 10),
             TextField(
               controller: motivoCtrl,
               maxLines: 3,
-              decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Ej: Captura incorrecta del primer parcial...'),
+              decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Ej: Error de dedo en el parcial...'),
             )
           ],
         ),
@@ -193,9 +183,16 @@ class _CapturaCalificacionesState extends State<CapturaCalificaciones> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: Text('Evaluación: $asignatura (Grupo ${widget.grupo['nombre_grupo']})'),
-        elevation: 1,
+      // INYECTAMOS LA BARRA SUPERIOR PARA COHERENCIA VISUAL ABSOLUTA
+      appBar: SiiNavbar(
+        titulo: 'SII - Portal Docente',
+        tabs: const [
+          SiiNavTab(label: 'Evaluación de Carga Académica', icon: Icons.assignment_turned_in),
+        ],
+        indexSeleccionado: 0,
+        onTabSelected: (_) {},
+        // Al estar usando Navigator.push, el botón de logout aquí simplemente regresa a la cuadrícula anterior
+        onLogout: () => Navigator.pop(context), 
       ),
       body: _cargando 
         ? const Center(child: CircularProgressIndicator())
@@ -204,13 +201,21 @@ class _CapturaCalificacionesState extends State<CapturaCalificaciones> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Botón discreto para regresar al menú de materias usando la navegación nativa
+                TextButton.icon(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.arrow_back, color: Color(0xFF003366)),
+                  label: const Text('VOLVER AL LISTADO DE GRUPOS', style: TextStyle(color: Color(0xFF003366), fontWeight: FontWeight.bold)),
+                ),
+                const SizedBox(height: 25),
+
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Lista de Asistencia y Calificaciones', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
+                        Text('Evaluación: $asignatura (Grupo ${widget.grupo['nombre_grupo']})', style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
                         const SizedBox(height: 8),
                         Text('Periodo: ${widget.grupo['periodo_escolar']} | Horario: ${widget.grupo['horario']}', style: const TextStyle(fontSize: 16, color: Colors.blueGrey)),
                       ],
@@ -238,18 +243,15 @@ class _CapturaCalificacionesState extends State<CapturaCalificaciones> {
                     child: _listaAlumnos.isEmpty
                       ? const Center(child: Padding(padding: EdgeInsets.all(40), child: Text('No hay alumnos inscritos.')))
                       : SingleChildScrollView(
-                          scrollDirection: Axis.horizontal, // Permite scroll horizontal si hay muchos parciales
+                          scrollDirection: Axis.horizontal, 
                           child: DataTable(
                             headingRowColor: MaterialStateProperty.all(Colors.grey.shade100),
                             dataRowMaxHeight: 70,
                             columns: [
                               const DataColumn(label: Text('Matrícula', style: TextStyle(fontWeight: FontWeight.bold))),
                               const DataColumn(label: Text('Nombre del Alumno', style: TextStyle(fontWeight: FontWeight.bold))),
-                              
-                              // COLUMNAS GENERADAS DINÁMICAMENTE BASADAS EN _cantidadParciales
                               for (int i = 1; i <= _cantidadParciales; i++)
                                 DataColumn(label: Text('Parcial $i', style: const TextStyle(fontWeight: FontWeight.bold))),
-                              
                               const DataColumn(label: Text('Promedio Final', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF003366)))),
                               const DataColumn(label: Text('Ajustes', style: TextStyle(fontWeight: FontWeight.bold))),
                             ],
@@ -270,7 +272,6 @@ class _CapturaCalificacionesState extends State<CapturaCalificaciones> {
                                 tieneCorreccionPendiente = solicitudes.any((s) => s['estatus'] == 'Pendiente');
                               }
 
-                              // Verificamos si AL MENOS UN parcial está lleno para mostrar el botón de desbloqueo
                               bool algunParcialLleno = false;
                               for (int i = 1; i <= _cantidadParciales; i++) {
                                 if (orig['calificacion_parcial_$i'] != null) algunParcialLleno = true;
@@ -280,7 +281,6 @@ class _CapturaCalificacionesState extends State<CapturaCalificaciones> {
                                 DataCell(Text(alumno['matricula_estudiante'] ?? 'N/A', style: const TextStyle(fontWeight: FontWeight.w600))),
                                 DataCell(Text(nombreCompleto)),
                                 
-                                // CELDAS DE CALIFICACIÓN GENERADAS DINÁMICAMENTE
                                 for (int i = 1; i <= _cantidadParciales; i++)
                                   DataCell(_casillaCalificacion(_controllers['${id}_p$i']!, orig['calificacion_parcial_$i'], tieneCorreccionAprobada)),
                                 
