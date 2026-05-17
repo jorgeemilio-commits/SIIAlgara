@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../widgets/sii_navbar.dart';
 import 'secciones/mis_grupos_profesor.dart'; 
+import 'secciones/plan_academico_seccion.dart';
 
 class ProfesorHome extends StatefulWidget {
   const ProfesorHome({super.key});
@@ -11,6 +12,7 @@ class ProfesorHome extends StatefulWidget {
 }
 
 class _ProfesorHomeState extends State<ProfesorHome> {
+  // --- VARIABLES DE ESTADO Y CONTROL DE PESTAÑAS ---
   int _tabActiva = 0;
   bool _cargando = true;
   
@@ -26,6 +28,7 @@ class _ProfesorHomeState extends State<ProfesorHome> {
     _cargarDatosProfesor();
   }
 
+  // --- SECCIÓN: CARGA DE DATOS DE SUPABASE ---
   Future<void> _cargarDatosProfesor() async {
     setState(() {
       _cargando = true;
@@ -60,7 +63,7 @@ class _ProfesorHomeState extends State<ProfesorHome> {
       try {
         final dataGrupos = await Supabase.instance.client
             .from('grupos')
-            .select('*, asignaturas(nombre_materia)')
+            .select('*, asignaturas(nombre_materia, cantidad_parciales)') // Traemos cantidad_parciales y url_plan
             .eq('numero_nomina_profesor', _nomina);
 
         setState(() {
@@ -81,6 +84,7 @@ class _ProfesorHomeState extends State<ProfesorHome> {
     if (mounted) Navigator.pop(context);
   }
 
+  // --- SECCIÓN: INTERFAZ GRÁFICA Y CONTROL DE VISTAS ---
   @override
   Widget build(BuildContext context) {
     final List<SiiNavTab> profeTabs = [
@@ -107,7 +111,7 @@ class _ProfesorHomeState extends State<ProfesorHome> {
                 children: [
                   _buildDashboard(),
                   MisGruposProfesor(misGrupos: _misGrupos), 
-                  _buildPlanAcademicoPlaceholder(),
+                  PlanAcademicoSeccion(misGrupos: _misGrupos), // Reemplazado el placeholder por tu vista real
                 ],
               ),
     );
@@ -135,6 +139,7 @@ class _ProfesorHomeState extends State<ProfesorHome> {
     );
   }
 
+  // --- VISTAS INTERNAS: DASHBOARD DE INICIO ---
   Widget _buildDashboard() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(40),
@@ -157,20 +162,6 @@ class _ProfesorHomeState extends State<ProfesorHome> {
               _resumenCard('Actas Pendientes', _misGrupos.length.toString(), Colors.orange, Icons.warning_amber_rounded),
             ],
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPlanAcademicoPlaceholder() {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.upload_file, size: 80, color: Colors.grey),
-          SizedBox(height: 20),
-          Text('Gestión de Plan Académico', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-          Text('Aquí se subirá el documento del plan de la materia.', style: TextStyle(color: Colors.grey)),
         ],
       ),
     );
