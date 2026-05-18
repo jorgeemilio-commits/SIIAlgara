@@ -20,6 +20,7 @@ class _ProfesorHomeState extends State<ProfesorHome> {
   String _nomina = '';
   String _departamento = '';
   List<dynamic> _misGrupos = [];
+  int _totalAlumnos = 0; // Almacena el conteo real de estudiantes inscritos
   String _mensajeError = '';
 
   @override
@@ -61,17 +62,33 @@ class _ProfesorHomeState extends State<ProfesorHome> {
       _departamento = dataProf['departamento_academico'] ?? 'Sin asignar';
 
       try {
+        // 1. Cargar grupos asignados al profesor
         final dataGrupos = await Supabase.instance.client
             .from('grupos')
-            .select('*, asignaturas(nombre_materia, cantidad_parciales)') // Traemos cantidad_parciales y url_plan
+            .select('*, asignaturas(nombre_materia, cantidad_parciales)') 
             .eq('numero_nomina_profesor', _nomina);
 
+        _misGrupos = dataGrupos;
+
+        // 2. Obtener el conteo real de estudiantes en esos grupos
+        if (_misGrupos.isNotEmpty) {
+          final clavesMaterias = _misGrupos.map((g) => g['clave_materia'].toString()).toList();
+          
+          final alumnosQuery = await Supabase.instance.client
+              .from('calificaciones')
+              .select('matricula_estudiante')
+              .filter('clave_materia', 'in', clavesMaterias);
+
+          _totalAlumnos = alumnosQuery.length;
+        } else {
+          _totalAlumnos = 0;
+        }
+
         setState(() {
-          _misGrupos = dataGrupos;
           _cargando = false;
         });
       } catch (errGrupos) {
-        setState(() { _mensajeError = 'ERROR AL CARGAR GRUPOS: $errGrupos'; _cargando = false; });
+        setState(() { _mensajeError = 'ERROR AL CARGAR GRUPOS O ESTUDIANTES: $errGrupos'; _cargando = false; });
       }
 
     } catch (e) {
@@ -111,7 +128,7 @@ class _ProfesorHomeState extends State<ProfesorHome> {
                 children: [
                   _buildDashboard(),
                   MisGruposProfesor(misGrupos: _misGrupos), 
-                  PlanAcademicoSeccion(misGrupos: _misGrupos), // Reemplazado el placeholder por tu vista real
+                  PlanAcademicoSeccion(misGrupos: _misGrupos), 
                 ],
               ),
     );
@@ -157,7 +174,7 @@ class _ProfesorHomeState extends State<ProfesorHome> {
             children: [
               _resumenCard('Grupos Asignados', _misGrupos.length.toString(), Colors.blue, Icons.class_),
               const SizedBox(width: 20),
-              _resumenCard('Alumnos Totales', '--', Colors.green, Icons.people),
+              _resumenCard('Alumnos Totales', _totalAlumnos.toString(), Colors.green, Icons.people),
               const SizedBox(width: 20),
               _resumenCard('Actas Pendientes', _misGrupos.length.toString(), Colors.orange, Icons.warning_amber_rounded),
             ],
