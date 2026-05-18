@@ -15,7 +15,13 @@ class PlanAcademicoSeccion extends StatefulWidget {
 }
 
 class _PlanAcademicoSeccionState extends State<PlanAcademicoSeccion> {
-  bool _procesando = false; 
+  bool _procesando = false;
+
+  // --- MÉTODO AUXILIAR PARA VALIDACIÓN ---
+  bool _tienePlan(Map<String, dynamic> grupo) {
+    final url = grupo['url_plan'];
+    return url != null && url.toString().isNotEmpty;
+  }
 
   // --- SECCIÓN LÓGICA: SUBIR Y REEMPLAZAR ARCHIVO ---
   Future<void> _seleccionarYSubirPlan(Map<String, dynamic> grupo) async {
@@ -24,44 +30,52 @@ class _PlanAcademicoSeccionState extends State<PlanAcademicoSeccion> {
       allowedExtensions: ['pdf'],
     );
 
-    if (result == null) return; 
+    if (result == null) return;
 
     setState(() => _procesando = true);
 
     try {
-      final file = result.files.first;
-      // FORZAMOS a que la extensión siempre sea .pdf en minúscula para evitar errores al borrar
-      final fileName = '${grupo['numero_nomina_profesor']}_${grupo['clave_materia']}_${grupo['nombre_grupo']}.pdf';
+      // Usamos el id_grupo para garantizar un identificador único y persistente
+      final fileName = '${grupo['id_grupo']}.pdf';
       final path = 'pdf_planes/$fileName';
 
       final storage = Supabase.instance.client.storage.from('planes_academicos');
-      
+
+      // Subida al Storage (upsert: true permite reemplazar el archivo existente)
       if (kIsWeb) {
-        await storage.uploadBinary(path, file.bytes!, fileOptions: const FileOptions(upsert: true));
+        await storage.uploadBinary(path, result.files.first.bytes!,
+            fileOptions: const FileOptions(upsert: true));
       } else {
-        await storage.upload(path, File(file.path!), fileOptions: const FileOptions(upsert: true));
+        await storage.upload(path, File(result.files.first.path!),
+            fileOptions: const FileOptions(upsert: true));
       }
 
       final String rawUrl = storage.getPublicUrl(path);
-      
-      // CACHE BUSTER: Agregamos la hora exacta al final del enlace. 
-      // Esto engaña al navegador para que siempre descargue el PDF nuevo y no use la caché vieja.
+      // Cache buster para forzar al navegador a recargar el archivo actualizado
       final String publicUrl = '$rawUrl?t=${DateTime.now().millisecondsSinceEpoch}';
 
+      // Vinculamos la URL generada al registro exacto en la tabla 'grupos'
       await Supabase.instance.client
           .from('grupos')
           .update({'url_plan': publicUrl})
-          .eq('id_grupo', grupo['id_grupo']); 
+          .eq('id_grupo', grupo['id_grupo']);
 
       setState(() {
         grupo['url_plan'] = publicUrl;
       });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Plan Académico guardado y actualizado con éxito.'), backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Plan guardado y vinculado correctamente.'),
+            backgroundColor: Colors.green));
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al subir: $e'), backgroundColor: Colors.red));
+      debugPrint('Error al subir: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Error al subir: ${e.toString()}'),
+            backgroundColor: Colors.red));
+      }
     } finally {
       if (mounted) setState(() => _procesando = false);
     }
@@ -72,17 +86,13 @@ class _PlanAcademicoSeccionState extends State<PlanAcademicoSeccion> {
     setState(() => _procesando = true);
 
     try {
-      final fileName = '${grupo['numero_nomina_profesor']}_${grupo['clave_materia']}_${grupo['nombre_grupo']}.pdf';
+      final fileName = '${grupo['id_grupo']}.pdf';
       final path = 'pdf_planes/$fileName';
 
-      // 1. Borramos el archivo físico del Storage
-      final response = await Supabase.instance.client.storage.from('planes_academicos').remove([path]);
-      
-      if (response.isEmpty) {
-        debugPrint('Advertencia: No se encontró el archivo físico en el bucket, pero limpiaremos la BD.');
-      }
+      // 1. Borrar archivo físico del Storage
+      await Supabase.instance.client.storage.from('planes_academicos').remove([path]);
 
-      // 2. Limpiamos la base de datos
+      // 2. Limpiar la columna 'url_plan' en la base de datos
       await Supabase.instance.client
           .from('grupos')
           .update({'url_plan': null})
@@ -93,19 +103,25 @@ class _PlanAcademicoSeccionState extends State<PlanAcademicoSeccion> {
       });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Plan Académico eliminado correctamente.'), backgroundColor: Colors.orange));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Plan eliminado correctamente.'),
+            backgroundColor: Colors.orange));
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al eliminar: $e'), backgroundColor: Colors.red));
+      debugPrint('Error al eliminar: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Error al eliminar: $e'), backgroundColor: Colors.red));
+      }
     } finally {
       if (mounted) setState(() => _procesando = false);
     }
   }
 
-  // --- SECCIÓN LÓGICA: VISUALIZACIÓN DEL PDF ---
+  // --- SECCIÓN LÓGICA: VISUALIZACIÓN ---
   void _verPlan(String url) {
     if (kIsWeb) {
-      web.window.open(url, '_blank'); 
+      web.window.open(url, '_blank');
     } else {
       debugPrint('Abriendo URL fuera del entorno Web: $url');
     }
@@ -119,71 +135,93 @@ class _PlanAcademicoSeccionState extends State<PlanAcademicoSeccion> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Gestión de Planes Académicos', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
+          const Text('Gestión de Planes Académicos',
+              style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF003366))),
           const SizedBox(height: 10),
-          const Text('Sube, consulta o actualiza el programa de estudios oficial (PDF) de tus asignaturas.', style: TextStyle(color: Colors.grey)),
+          const Text(
+              'Sube, consulta o actualiza el programa de estudios oficial (PDF) de tus asignaturas.',
+              style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 30),
-          
           if (_procesando == true) ...[
             const LinearProgressIndicator(),
             const SizedBox(height: 15),
           ],
-
           Expanded(
             child: widget.misGrupos.isEmpty
-              ? const Center(child: Text('No hay grupos cargados.'))
-              : ListView.builder(
-                  itemCount: widget.misGrupos.length,
-                  itemBuilder: (context, index) {
-                    final grupo = widget.misGrupos[index];
-                    
-                    final bool tienePlan = (grupo['url_plan'] != null) && (grupo['url_plan'].toString().isNotEmpty);
-                    final String nombreMateria = grupo['asignaturas'] != null 
-                        ? (grupo['asignaturas']['nombre_materia'] ?? 'Materia sin nombre') 
-                        : 'Materia Desconocida';
+                ? const Center(child: Text('No hay grupos cargados.'))
+                : ListView.builder(
+                    itemCount: widget.misGrupos.length,
+                    itemBuilder: (context, index) {
+                      final grupo = widget.misGrupos[index];
+                      final bool tienePlan = _tienePlan(grupo);
+                      
+                      final String nombreMateria = grupo['asignaturas'] != null
+                          ? (grupo['asignaturas']['nombre_materia'] ?? 'Materia sin nombre')
+                          : 'Materia Desconocida';
 
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 15),
-                      child: ListTile(
-                        leading: Icon(Icons.picture_as_pdf, color: tienePlan ? Colors.green : Colors.red, size: 40),
-                        title: Text(nombreMateria, style: const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text('Grupo: ${grupo['nombre_grupo'] ?? 'N/A'} | Estatus: ${tienePlan ? 'Cargado' : 'Pendiente'}'),
-                        trailing: tienePlan 
-                          ? Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                TextButton.icon(
-                                  onPressed: _procesando == true ? null : () => _verPlan(grupo['url_plan']),
-                                  icon: const Icon(Icons.visibility, color: Color(0xFF003366)),
-                                  label: const Text('Ver', style: TextStyle(color: Color(0xFF003366))),
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 15),
+                        child: ListTile(
+                          leading: Icon(Icons.picture_as_pdf,
+                              color: tienePlan ? Colors.green : Colors.red,
+                              size: 40),
+                          title: Text(nombreMateria,
+                              style: const TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: Text(
+                              'Grupo: ${grupo['nombre_grupo'] ?? 'N/A'} | Estatus: ${tienePlan ? 'Cargado' : 'Pendiente'}'),
+                          trailing: tienePlan
+                              ? Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    TextButton.icon(
+                                      onPressed: _procesando == true
+                                          ? null
+                                          : () => _verPlan(grupo['url_plan']),
+                                      icon: const Icon(Icons.visibility,
+                                          color: Color(0xFF003366)),
+                                      label: const Text('Ver',
+                                          style: TextStyle(color: Color(0xFF003366))),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    TextButton.icon(
+                                      onPressed: _procesando == true
+                                          ? null
+                                          : () => _seleccionarYSubirPlan(grupo),
+                                      icon: const Icon(Icons.refresh,
+                                          color: Colors.blueGrey),
+                                      label: const Text('Reemplazar',
+                                          style: TextStyle(color: Colors.blueGrey)),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    TextButton.icon(
+                                      onPressed: _procesando == true
+                                          ? null
+                                          : () => _eliminarPlan(grupo),
+                                      icon: const Icon(Icons.delete_outline,
+                                          color: Colors.red),
+                                      label: const Text('Eliminar',
+                                          style: TextStyle(color: Colors.red)),
+                                    ),
+                                  ],
+                                )
+                              : ElevatedButton.icon(
+                                  onPressed: _procesando == true
+                                      ? null
+                                      : () => _seleccionarYSubirPlan(grupo),
+                                  icon: const Icon(Icons.upload_file),
+                                  label: const Text('Subir Plan'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF003366),
+                                    foregroundColor: Colors.white,
+                                  ),
                                 ),
-                                const SizedBox(width: 10),
-                                TextButton.icon(
-                                  onPressed: _procesando == true ? null : () => _seleccionarYSubirPlan(grupo),
-                                  icon: const Icon(Icons.refresh, color: Colors.blueGrey),
-                                  label: const Text('Reemplazar', style: TextStyle(color: Colors.blueGrey)),
-                                ),
-                                const SizedBox(width: 10),
-                                TextButton.icon(
-                                  onPressed: _procesando == true ? null : () => _eliminarPlan(grupo),
-                                  icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                  label: const Text('Eliminar', style: TextStyle(color: Colors.red)),
-                                ),
-                              ],
-                            )
-                          : ElevatedButton.icon(
-                              onPressed: _procesando == true ? null : () => _seleccionarYSubirPlan(grupo),
-                              icon: const Icon(Icons.upload_file),
-                              label: const Text('Subir Plan'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF003366),
-                                foregroundColor: Colors.white,
-                              ),
-                            ),
-                      ),
-                    );
-                  },
-                ),
+                        ),
+                      );
+                    },
+                  ),
           )
         ],
       ),
