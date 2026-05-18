@@ -15,7 +15,6 @@ class PlanAcademicoSeccion extends StatefulWidget {
 }
 
 class _PlanAcademicoSeccionState extends State<PlanAcademicoSeccion> {
-  // --- VARIABLES DE ESTADO (BLINDADA CONTRA NULOS) ---
   bool _procesando = false; 
 
   // --- SECCIÓN LÓGICA: SUBIR Y REEMPLAZAR ARCHIVO ---
@@ -31,8 +30,8 @@ class _PlanAcademicoSeccionState extends State<PlanAcademicoSeccion> {
 
     try {
       final file = result.files.first;
-      final fileExtension = file.extension;
-      final fileName = '${grupo['numero_nomina_profesor']}_${grupo['clave_materia']}_${grupo['nombre_grupo']}.$fileExtension';
+      // FORZAMOS a que la extensión siempre sea .pdf en minúscula para evitar errores al borrar
+      final fileName = '${grupo['numero_nomina_profesor']}_${grupo['clave_materia']}_${grupo['nombre_grupo']}.pdf';
       final path = 'pdf_planes/$fileName';
 
       final storage = Supabase.instance.client.storage.from('planes_academicos');
@@ -43,7 +42,11 @@ class _PlanAcademicoSeccionState extends State<PlanAcademicoSeccion> {
         await storage.upload(path, File(file.path!), fileOptions: const FileOptions(upsert: true));
       }
 
-      final String publicUrl = storage.getPublicUrl(path);
+      final String rawUrl = storage.getPublicUrl(path);
+      
+      // CACHE BUSTER: Agregamos la hora exacta al final del enlace. 
+      // Esto engaña al navegador para que siempre descargue el PDF nuevo y no use la caché vieja.
+      final String publicUrl = '$rawUrl?t=${DateTime.now().millisecondsSinceEpoch}';
 
       await Supabase.instance.client
           .from('grupos')
@@ -55,7 +58,7 @@ class _PlanAcademicoSeccionState extends State<PlanAcademicoSeccion> {
       });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Plan Académico guardado con éxito.'), backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Plan Académico guardado y actualizado con éxito.'), backgroundColor: Colors.green));
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al subir: $e'), backgroundColor: Colors.red));
@@ -72,8 +75,14 @@ class _PlanAcademicoSeccionState extends State<PlanAcademicoSeccion> {
       final fileName = '${grupo['numero_nomina_profesor']}_${grupo['clave_materia']}_${grupo['nombre_grupo']}.pdf';
       final path = 'pdf_planes/$fileName';
 
-      await Supabase.instance.client.storage.from('planes_academicos').remove([path]);
+      // 1. Borramos el archivo físico del Storage
+      final response = await Supabase.instance.client.storage.from('planes_academicos').remove([path]);
+      
+      if (response.isEmpty) {
+        debugPrint('Advertencia: No se encontró el archivo físico en el bucket, pero limpiaremos la BD.');
+      }
 
+      // 2. Limpiamos la base de datos
       await Supabase.instance.client
           .from('grupos')
           .update({'url_plan': null})
@@ -115,7 +124,6 @@ class _PlanAcademicoSeccionState extends State<PlanAcademicoSeccion> {
           const Text('Sube, consulta o actualiza el programa de estudios oficial (PDF) de tus asignaturas.', style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 30),
           
-          // BLINDAJE: Verificamos explícitamente que sea true
           if (_procesando == true) ...[
             const LinearProgressIndicator(),
             const SizedBox(height: 15),
@@ -129,10 +137,7 @@ class _PlanAcademicoSeccionState extends State<PlanAcademicoSeccion> {
                   itemBuilder: (context, index) {
                     final grupo = widget.misGrupos[index];
                     
-                    // BLINDAJE: Aseguramos que la expresión genere un booleano estricto
                     final bool tienePlan = (grupo['url_plan'] != null) && (grupo['url_plan'].toString().isNotEmpty);
-                    
-                    // BLINDAJE: Evitamos un crash si la asignatura llega nula desde Supabase
                     final String nombreMateria = grupo['asignaturas'] != null 
                         ? (grupo['asignaturas']['nombre_materia'] ?? 'Materia sin nombre') 
                         : 'Materia Desconocida';
