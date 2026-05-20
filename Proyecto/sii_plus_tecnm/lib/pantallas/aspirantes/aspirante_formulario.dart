@@ -201,7 +201,7 @@ class _AspiranteFormularioState extends State<AspiranteFormulario> {
                     Expanded(child: _campo('Fecha Nac. (YYYY-MM-DD)', _fechaNacCtrl)),
                   ]),
                   
-                  // --- SECCIÓN 2: DATOS DE CONTACTO (NUEVA) ---
+                  // --- SECCIÓN 2: DATOS DE CONTACTO ---
                   const Divider(height: 40),
                   const Text('Datos de Contacto', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey)),
                   const SizedBox(height: 15),

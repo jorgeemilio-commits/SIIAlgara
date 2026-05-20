@@ -50,7 +50,7 @@ class _AspiranteHomeState extends State<AspiranteHome> {
     }
   }
 
-  // --- LÓGICA DE VALIDACIÓN: Verificar si la cuenta pertenece a un empleado o a un estudiante ---
+  // --- Verificar si la cuenta pertenece a un empleado o a un estudiante ---
   Future<bool> _tieneOtroRol(String userId) async {
     try {
       // 1. ¿Es Administrador?
@@ -275,7 +275,7 @@ class _AspiranteHomeState extends State<AspiranteHome> {
                           child: const Text('SALIR', style: TextStyle(color: Colors.red, fontSize: 16)),
                         ),
                       ] else ...[
-                        // Botones Modo Nueva Solicitud (Registro)
+                        // Botones Modo Nueva Solicitud (Crear Cuenta, Cancelar y Volver)
                         ElevatedButton(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF003366),
