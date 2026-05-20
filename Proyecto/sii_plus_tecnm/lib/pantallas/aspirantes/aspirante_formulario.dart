@@ -19,7 +19,12 @@ class _AspiranteFormularioState extends State<AspiranteFormulario> {
   bool _enviando = false;
   
   String _folioAsignado = '';
-  String? _urlCertificado; // Guarda la URL para poder VER el documento después
+  
+  // URLs de los documentos remotos guardados en Supabase
+  String? _urlCertificado; 
+  String? _urlActa;
+  String? _urlCurp;
+  String? _urlNss;
 
   // Controladores de Datos Personales
   final _nombresCtrl = TextEditingController(text: 'Jorge Emilio');
@@ -38,8 +43,11 @@ class _AspiranteFormularioState extends State<AspiranteFormulario> {
   final _localidadCtrl = TextEditingController(text: 'Los Mochis');
   String? _entidadSeleccionada = 'Sinaloa';
 
-  // Variable para guardar el archivo temporalmente antes de enviar
+  // --- VARIABLES TEMPORALES PARA ARCHIVOS LOCALES ---
   PlatformFile? _certificadoFile;
+  PlatformFile? _actaFile;
+  PlatformFile? _curpFile;
+  PlatformFile? _nssFile;
 
   final List<String> _carreras = [
     'Arquitectura', 'Contador Público', 'Ingeniería Bioquímica', 'Ingeniería Electromecánica',
@@ -73,11 +81,16 @@ class _AspiranteFormularioState extends State<AspiranteFormulario> {
         final data = await Supabase.instance.client.from('aspirantes').select().eq('id_auth', user.id).maybeSingle();
         
         if (data != null) {
-          // Si ya hay datos, los cargamos para mostrarlos en el resumen (modo lectura)
           _folioAsignado = data['folio_aspirante'];
           _carreraSeleccionada = data['carrera_solicitada'];
-          _urlCertificado = data['url_certificado'];
           
+          // Recuperación de URLs de documentos desde la BD
+          _urlCertificado = data['url_certificado'];
+          _urlActa = data['url_acta_nacimiento'];
+          _urlCurp = data['url_curp'];
+          _urlNss = data['url_nss'];
+          
+          // Mapeo en modo lectura de los campos del formulario
           _nombresCtrl.text = data['nombres'] ?? '';
           _paternoCtrl.text = data['apellido_paterno'] ?? '';
           _maternoCtrl.text = data['apellido_materno'] ?? '';
@@ -96,50 +109,46 @@ class _AspiranteFormularioState extends State<AspiranteFormulario> {
     if (mounted) setState(() => _cargandoInicial = false);
   }
 
-  // --- SECCIÓN: SELECCIÓN LOCAL DEL ARCHIVO (Solo al crear la solicitud) ---
-  Future<void> _seleccionarCertificado() async {
+  // --- SECCIÓN: SELECCIÓN LOCAL DE ARCHIVOS (Solo antes del envío) ---
+  Future<PlatformFile?> _seleccionarArchivo() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf'],
     );
     if (result != null) {
-      setState(() => _certificadoFile = result.files.first);
+      return result.files.first;
     }
+    return null;
   }
 
-  // --- SECCIÓN: VER EL DOCUMENTO YA SUBIDO (Solo lectura) ---
-  void _verCertificado() {
-    if (_urlCertificado != null && _urlCertificado!.isNotEmpty) {
-      if (kIsWeb) {
-        web.window.open(_urlCertificado!, '_blank');
-      } else {
-        debugPrint('Abriendo URL: $_urlCertificado');
-      }
+  // --- SECCIÓN: AUXILIAR DE SUBIDA DE ARCHIVOS A BUCKET ---
+  Future<String?> _subirDocumentoBucket(String nombreArchivo, PlatformFile? file) async {
+    if (file == null) return null;
+    final path = 'certificados/$nombreArchivo.pdf';
+    final storage = Supabase.instance.client.storage.from('documentos_aspirantes');
+    
+    if (kIsWeb) {
+      await storage.uploadBinary(path, file.bytes!, fileOptions: const FileOptions(upsert: true));
+    } else {
+      await storage.upload(path, File(file.path!), fileOptions: const FileOptions(upsert: true));
     }
+    return storage.getPublicUrl(path);
   }
 
-  // --- LÓGICA: ENVIAR FORMULARIO A LA BASE DE DATOS ---
+  // --- LÓGICA: ENVIAR FORMULARIO E INYECTAR ARCHIVOS ---
   Future<void> _enviarSolicitud() async {
     setState(() => _enviando = true);
     try {
       final user = Supabase.instance.client.auth.currentUser;
       final tempFolio = 'ASP-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
-      String? urlGenerada;
 
-      // 1. Subimos el archivo si se adjuntó uno
-      if (_certificadoFile != null) {
-        final path = 'certificados/${tempFolio}_certificado.pdf';
-        final storage = Supabase.instance.client.storage.from('documentos_aspirantes');
-        
-        if (kIsWeb) {
-          await storage.uploadBinary(path, _certificadoFile!.bytes!, fileOptions: const FileOptions(upsert: true));
-        } else {
-          await storage.upload(path, File(_certificadoFile!.path!), fileOptions: const FileOptions(upsert: true));
-        }
-        urlGenerada = storage.getPublicUrl(path);
-      }
+      // Proceso ordenado de subida de archivos individuales
+      String? resCertificado = await _subirDocumentoBucket('${tempFolio}_certificado', _certificadoFile);
+      String? resActa = await _subirDocumentoBucket('${tempFolio}_acta', _actaFile);
+      String? resCurp = await _subirDocumentoBucket('${tempFolio}_curp', _curpFile);
+      String? resNss = await _subirDocumentoBucket('${tempFolio}_nss', _nssFile);
 
-      // 2. Guardamos toda la información en la tabla aspirantes
+      // Inserción masiva de los datos recabados en la tabla pública de aspirantes
       await Supabase.instance.client.from('aspirantes').insert({
         'folio_aspirante': tempFolio,
         'nombres': _nombresCtrl.text,
@@ -156,17 +165,25 @@ class _AspiranteFormularioState extends State<AspiranteFormulario> {
         'entidad_federativa': _entidadSeleccionada,
         'carrera_solicitada': _carreraSeleccionada,
         'promedio_preparatoria': double.tryParse(_promedioCtrl.text),
-        'url_certificado': urlGenerada, // Guardamos la URL para poder verla después
+        
+        // Mapeo de URLs públicas generadas desde el bucket
+        'url_certificado': resCertificado,
+        'url_acta_nacimiento': resActa,
+        'url_curp': resCurp,
+        'url_nss': resNss,
         'id_auth': user?.id,
       });
 
       setState(() {
         _folioAsignado = tempFolio;
-        _urlCertificado = urlGenerada;
+        _urlCertificado = resCertificado;
+        _urlActa = resActa;
+        _urlCurp = resCurp;
+        _urlNss = resNss;
         _tieneRegistro = true; 
       });
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al guardar: $e'), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al guardar la solicitud: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _enviando = false);
     }
@@ -188,9 +205,83 @@ class _AspiranteFormularioState extends State<AspiranteFormulario> {
       body: Center(
         child: _cargandoInicial 
           ? const CircularProgressIndicator() 
-          // Control de vista: Si ya tiene registro muestra resumen, sino, el formulario
           : _tieneRegistro ? _vistaEstatus() : _vistaFormulario(),
       ),
+    );
+  }
+
+  // ==========================================================
+  // WIDGET AUXILIAR: Selector de Archivos (Para el formulario de edición)
+  // ==========================================================
+  Widget _constructorCajaArchivo({
+    required String tituloBoton,
+    required PlatformFile? archivoLocal,
+    required VoidCallback alSeleccionar,
+    required VoidCallback alEliminar,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade400), borderRadius: BorderRadius.circular(6)),
+      child: Row(
+        children: [
+          if (archivoLocal == null) ...[
+            ElevatedButton.icon(
+              onPressed: alSeleccionar,
+              icon: const Icon(Icons.upload_file),
+              label: Text(tituloBoton),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF003366), foregroundColor: Colors.white),
+            ),
+            const SizedBox(width: 15),
+            const Expanded(child: Text('Ningún documento seleccionado', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)))
+          ] else ...[
+            const Icon(Icons.picture_as_pdf, color: Colors.green, size: 28),
+            const SizedBox(width: 10),
+            Expanded(child: Text('Listo: ${archivoLocal.name}', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
+            TextButton.icon(
+              onPressed: alEliminar,
+              icon: const Icon(Icons.delete_outline, color: Colors.red),
+              label: const Text('Quitar', style: TextStyle(color: Colors.red)),
+            ),
+          ]
+        ],
+      ),
+    );
+  }
+
+  // ==========================================================
+  // WIDGET AUXILIAR: Visor de Archivos (Para la pantalla de estatus congelada)
+  // ==========================================================
+  Widget _constructorVisorArchivo(String descriptorDocumento, String? urlRemota) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(10)),
+      child: urlRemota != null && urlRemota.isNotEmpty
+        ? Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.picture_as_pdf, color: Colors.green, size: 28),
+                  const SizedBox(width: 10),
+                  Text(descriptorDocumento, style: const TextStyle(fontWeight: FontWeight.bold)),
+                ],
+              ),
+              TextButton.icon(
+                onPressed: () {
+                  if (kIsWeb) {
+                    web.window.open(urlRemota, '_blank');
+                  } else {
+                    debugPrint('Visualizando: $urlRemota');
+                  }
+                },
+                icon: const Icon(Icons.visibility, color: Color(0xFF003366)),
+                label: const Text('Ver Documento', style: TextStyle(color: Color(0xFF003366))),
+              )
+            ],
+          )
+        : Text('No se adjuntó el archivo de: $descriptorDocumento', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
     );
   }
 
@@ -262,53 +353,49 @@ class _AspiranteFormularioState extends State<AspiranteFormulario> {
                     Expanded(child: _campo('Correo', _correoPersonalCtrl)),
                   ]),
 
-                  // -- ACADÉMICO Y DOCUMENTO --
+                  // -- ACADÉMICO Y DOCUMENTACIÓN --
                   const Divider(height: 40),
-                  const Text('Datos Académicos y Documentos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey)),
+                  const Text('Datos Académicos y Documentación Requerida', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey)),
                   const SizedBox(height: 15),
                   Row(children: [
                     Expanded(
                       flex: 2,
                       child: DropdownButtonFormField<String>(
                         value: _carreraSeleccionada,
-                        decoration: const InputDecoration(labelText: 'Carrera', border: OutlineInputBorder()),
+                        decoration: const InputDecoration(labelText: 'Carrera a Solicitar', border: OutlineInputBorder()),
                         items: _carreras.map((c) => DropdownMenuItem(value: c, child: Text(c, overflow: TextOverflow.ellipsis))).toList(),
                         onChanged: (val) => setState(() => _carreraSeleccionada = val),
                       ),
                     ),
                     const SizedBox(width: 10),
-                    Expanded(child: _campo('Promedio', _promedioCtrl)),
+                    Expanded(child: _campo('Promedio General', _promedioCtrl)),
                   ]),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 25),
                   
-                  // CAJA DE SELECCIÓN DE DOCUMENTO (Solo permite Seleccionar o Eliminar)
-                  Container(
-                    padding: const EdgeInsets.all(15),
-                    decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(5)),
-                    child: Row(
-                      children: [
-                        if (_certificadoFile == null) ...[
-                          ElevatedButton.icon(
-                            onPressed: _seleccionarCertificado,
-                            icon: const Icon(Icons.upload_file),
-                            label: const Text('Adjuntar Certificado (PDF)'),
-                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF003366), foregroundColor: Colors.white),
-                          ),
-                          const SizedBox(width: 15),
-                          const Expanded(child: Text('Ningún archivo seleccionado', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)))
-                        ] else ...[
-                          const Icon(Icons.picture_as_pdf, color: Colors.green, size: 30),
-                          const SizedBox(width: 10),
-                          Expanded(child: Text('Seleccionado: ${_certificadoFile!.name}', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
-                          TextButton.icon(
-                            // BOTÓN DE ELIMINAR PARA PERMITIR CAMBIAR DE ARCHIVO ANTES DE ENVIAR
-                            onPressed: () => setState(() => _certificadoFile = null),
-                            icon: const Icon(Icons.delete_outline, color: Colors.red),
-                            label: const Text('Eliminar', style: TextStyle(color: Colors.red)),
-                          ),
-                        ]
-                      ],
-                    ),
+                  // Componentes dinámicos de selección de archivos en fase de llenado
+                  _constructorCajaArchivo(
+                    tituloBoton: 'Certificado de Preparatoria (PDF)',
+                    archivoLocal: _certificadoFile,
+                    alSeleccionar: () async { final f = await _seleccionarArchivo(); if (f != null) setState(() => _certificadoFile = f); },
+                    alEliminar: () => setState(() => _certificadoFile = null),
+                  ),
+                  _constructorCajaArchivo(
+                    tituloBoton: 'Acta de Nacimiento (PDF)',
+                    archivoLocal: _actaFile,
+                    alSeleccionar: () async { final f = await _seleccionarArchivo(); if (f != null) setState(() => _actaFile = f); },
+                    alEliminar: () => setState(() => _actaFile = null),
+                  ),
+                  _constructorCajaArchivo(
+                    tituloBoton: 'Constancia de CURP (PDF)',
+                    archivoLocal: _curpFile,
+                    alSeleccionar: () async { final f = await _seleccionarArchivo(); if (f != null) setState(() => _curpFile = f); },
+                    alEliminar: () => setState(() => _curpFile = null),
+                  ),
+                  _constructorCajaArchivo(
+                    tituloBoton: 'Número de Seguridad Social (PDF)',
+                    archivoLocal: _nssFile,
+                    alSeleccionar: () async { final f = await _seleccionarArchivo(); if (f != null) setState(() => _nssFile = f); },
+                    alEliminar: () => setState(() => _nssFile = null),
                   ),
 
                   const SizedBox(height: 40),
@@ -318,7 +405,7 @@ class _AspiranteFormularioState extends State<AspiranteFormulario> {
                     child: ElevatedButton(
                       onPressed: _enviando ? null : _enviarSolicitud,
                       style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF003366)),
-                      child: _enviando ? const CircularProgressIndicator() : const Text('ENVIAR DATOS DE ADMISIÓN', style: TextStyle(color: Colors.white, fontSize: 16)),
+                      child: _enviando ? const CircularProgressIndicator(color: Colors.white) : const Text('ENVIAR DATOS DE ADMISIÓN', style: TextStyle(color: Colors.white, fontSize: 16)),
                     ),
                   )
                 ],
@@ -331,7 +418,7 @@ class _AspiranteFormularioState extends State<AspiranteFormulario> {
   }
 
   // ==========================================================
-  // VISTA 2: ESTATUS DE SOLICITUD (SOLO LECTURA)
+  // VISTA 2: ESTATUS DE SOLICITUD (SOLO LECTURA COMPLETA)
   // ==========================================================
   Widget _vistaEstatus() {
     return SingleChildScrollView(
@@ -354,7 +441,7 @@ class _AspiranteFormularioState extends State<AspiranteFormulario> {
                   const Center(child: Text('Tus datos están registrados y en proceso de revisión. Ya no es posible modificarlos.', style: TextStyle(fontSize: 16, color: Colors.grey), textAlign: TextAlign.center)),
                   const SizedBox(height: 30),
                   
-                  // PANEL DE RESUMEN DE DATOS
+                  // PANEL DE RESUMEN EN MODO LECTURA
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.blue.shade200)),
@@ -379,33 +466,14 @@ class _AspiranteFormularioState extends State<AspiranteFormulario> {
                   ),
                   
                   const SizedBox(height: 30),
-                  const Text('Documentación Oficial', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
+                  const Text('Expediente Digital Cargado', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF003366))),
                   const SizedBox(height: 15),
                   
-                  // CAJA DE DOCUMENTO REMOTO (SOLO VER, SIN REEMPLAZAR NI ELIMINAR)
-                  Container(
-                    padding: const EdgeInsets.all(15),
-                    decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(12)),
-                    child: _urlCertificado != null && _urlCertificado!.isNotEmpty
-                      ? Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Row(
-                              children: [
-                                Icon(Icons.picture_as_pdf, color: Colors.green, size: 30),
-                                SizedBox(width: 10),
-                                Text('Certificado_Preparatoria.pdf', style: TextStyle(fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                            TextButton.icon(
-                              onPressed: _verCertificado,
-                              icon: const Icon(Icons.visibility, color: Color(0xFF003366)),
-                              label: const Text('Ver Documento', style: TextStyle(color: Color(0xFF003366))),
-                            )
-                          ],
-                        )
-                      : const Text('No adjuntaste ningún certificado durante tu registro.', style: TextStyle(color: Colors.red)),
-                  ),
+                  // Despliegue de visores limpios de documentos remotos (sin botones de alterar o eliminar)
+                  _constructorVisorArchivo('Certificado de Preparatoria', _urlCertificado),
+                  _constructorVisorArchivo('Acta de Nacimiento', _urlActa),
+                  _constructorVisorArchivo('Constancia de CURP', _urlCurp),
+                  _constructorVisorArchivo('Número de Seguridad Social (NSS)', _urlNss),
 
                   const SizedBox(height: 40),
                   Center(
@@ -429,10 +497,8 @@ class _AspiranteFormularioState extends State<AspiranteFormulario> {
     );
   }
 
-  // Widget auxiliar para los campos editables
   Widget _campo(String label, TextEditingController ctrl) => TextFormField(controller: ctrl, decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()));
 
-  // Widget auxiliar para mostrar los datos en modo lectura
   Widget _filaResumen(String titulo, String valor) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8.0),
